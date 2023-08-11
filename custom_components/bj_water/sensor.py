@@ -37,7 +37,7 @@ SENSORS = {
         "attributes": ["last_update"],
     },
     "first_step_price": {
-        "name": "第一阶梯水费",
+        "name": "第一阶梯水费单价",
         "icon": "hass:currency-cny",
         "unit_of_measurement": "CNY",
     },

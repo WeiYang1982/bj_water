@@ -42,6 +42,7 @@
 
 ### 配置
 通过UI配置，在集成-北京水费中，输入水表户号即可
+<image src="images/config.png">
 
 ### 更新数据
 固定设置为1天更新一次
@@ -64,6 +65,19 @@ UPDATE_INTERVAL = timedelta(days=1)
      - 额外属性: 总用水量、水表数
 
 
+*sensors列表:*
+
+<img alt="sensors列表" height="600" src="images/sensors.png" width="600"/>
+
+
+*历史账单周期费用*
+
+<img alt="sensors列表" height="600" src="images/history_fee.png" width="600"/>
+
+
+*历史账单周期用量*
+
+<img alt="sensors列表" height="600" src="images/history_usage.png" width="600"/>
 
 
 ## TODO
