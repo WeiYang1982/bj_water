@@ -1,0 +1,22 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "title": "北京水费",
+          "description": "用于查询北京自来水使用量以及水费等信息",
+          "data": {
+            "userCode": "水表户号"
+          }
+        }
+      },
+      "error": {
+        "cannot_connect": "网络异常",
+        "invalid_auth": "未查询到内容,请检查户号",
+        "invalid_format": "户号格式错误",
+        "unknown": "未知错误"
+      },
+      "abort": {
+        "already_configured": "账号已添加，请勿重复添加"
+      }
+    }
+  }

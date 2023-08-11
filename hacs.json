@@ -1,0 +1,7 @@
+{
+    "name": "BeiJing Water Meter Statistics",
+    "render_readme": true,
+    "country": "CN",
+    "homeassistant": "2022.11",
+    "iot_class": "Cloud Polling"
+  }
