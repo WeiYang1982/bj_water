@@ -23,14 +23,14 @@ SENSORS = {
     },
     "meter_value": {
         "name": "水表总数",
-        "icon": "hass:water-pump",
+        "icon": "hass:scale",
         "unit_of_measurement": "m³",
         "attributes": ["last_update"],
         "device_class": SensorDeviceClass.WATER,
         "state_class": SensorStateClass.TOTAL_INCREASING,
     },
     "first_step_left": {
-        "name": "第一阶梯剩余",
+        "name": "第一阶梯剩余用量",
         "icon": "hass:water-pump",
         "unit_of_measurement": "m³",
         "device_class": SensorDeviceClass.WATER,
@@ -38,28 +38,28 @@ SENSORS = {
     },
     "first_step_price": {
         "name": "第一阶梯水费",
-        "icon": "hass:water-pump",
+        "icon": "hass:currency-cny",
         "unit_of_measurement": "CNY",
     },
     "wastwater_treatment_price": {
-        "name": "污水处理费",
-        "icon": "hass:water-pump",
+        "name": "污水处理费单价",
+        "icon": "hass:currency-cny",
         "unit_of_measurement": "CNY",
     },
     "water_tax": {
-        "name": "水资源费",
-        "icon": "hass:water-pump",
+        "name": "水资源费单价",
+        "icon": "hass:currency-cny",
         "unit_of_measurement": "CNY",
     },
     "second_step_left": {
-        "name": "第二阶梯剩余",
+        "name": "第二阶梯剩余用量",
         "icon": "hass:water-pump",
         "unit_of_measurement": "m³",
         "device_class": SensorDeviceClass.WATER,
     },
     "total_cost": {
-        "name": "当前水费单价",
-        "icon": "hass:water-pump",
+        "name": "当前水费总单价",
+        "icon": "hass:cash-100",
         "unit_of_measurement": "CNY/m³",
         "device_class": SensorDeviceClass.WATER,
     },
@@ -117,33 +117,6 @@ async def async_setup_entry(
                         coordinator, user_code, k, v["meter"])
                 )
     async_add_entities(sensors_list, False)
-
-
-# async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-#     """Set up the sensor platform."""
-#     sensors_list = []
-#     coordinator = hass.data[DOMAIN]["coordinator"]
-#     LOGGER.warning(coordinator)
-#     data = coordinator.data
-
-#     user_code = data["user_code"]
-
-#     for key, value in data.items():
-#         if key in SENSORS.keys():
-#             sensors_list.append(BJWaterSensor(
-#                 coordinator, user_code, key, value))
-#         elif key == "cycle":
-#             dict_data = value
-#             for k, v in dict_data.items():
-#                 sensors_list.append(
-#                     BJWaterHistoryFeeSensor(
-#                         coordinator, user_code, k, v["fee"])
-#                 )
-#                 sensors_list.append(
-#                     BJWaterHistoryUsageSensor(
-#                         coordinator, user_code, k, v["meter"])
-#                 )
-#     async_add_devices(sensors_list, True)
 
 
 class BJWaterBaseSensor(CoordinatorEntity):
