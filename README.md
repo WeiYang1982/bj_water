@@ -1,8 +1,8 @@
 # 北京水费信息Home Assistant集成
 # BeiJing Water Meter Statictics
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)  
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/WeiYang1982/bj_water)](https://github.com/WeiYang1982/bj_water/releases/latest)  
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![Stable](https://img.shields.io/github/v/release/WeiYang1982/bj_water)](https://github.com/WeiYang1982/bj_water/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
