@@ -1,7 +1,9 @@
 # 北京水费信息Home Assistant集成
 # BeiJing Water Meter Statictics
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)  [![GitHub release (latest by date)](https://img.shields.io/github/v/release/WeiYang1982/bj_water_statictics)](https://github.com/WeiYang1982/bj_water_statictics/releases/tag/v1.0)  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)  
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/WeiYang1982/bj_water)](https://github.com/WeiYang1982/bj_water/releases/latest)  
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
 
@@ -36,13 +38,14 @@
 
 ### 安装
 
-使用[HACS](https://hacs.xyz/)或[手动下载安装](https://github.com/WeiYang1982/bj_water_statictics/releases)
+使用[HACS](https://hacs.xyz/)或[手动下载安装](https://github.com/WeiYang1982/bj_water/releases)
 
 **注意：本集成需求`Home Assistant`最低版本为`2022.11`**
 
 ### 配置
 通过UI配置，在集成-北京水费中，输入水表户号即可
-<image src="https://github.com/WeiYang1982/bj_water/blob/main/images/config.png">
+
+[//]: # (<img src="https://github.com/WeiYang1982/bj_water/blob/main/images/config.png" />)
 
 ### 更新数据
 固定设置为1天更新一次
@@ -67,17 +70,17 @@ UPDATE_INTERVAL = timedelta(days=1)
 
 *sensors列表:*
 
-<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/sensors.png" width="600"/>
+[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/sensors.png" width="600"/>)
 
 
 *历史账单周期费用*
 
-<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_fee.png" width="600"/>
+[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_fee.png" width="600"/>)
 
 
 *历史账单周期用量*
 
-<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_usage.png" width="600"/>
+[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_usage.png" width="600"/>)
 
 
 ## TODO
