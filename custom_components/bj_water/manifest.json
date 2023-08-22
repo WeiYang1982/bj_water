@@ -1,6 +1,6 @@
 {
   "domain": "bj_water",
-  "name": "北京水费",
+  "name": "北京水费信息",
   "version": 1,
   "codeowners": ["@WeiYang1982"],
   "dependencies": [],

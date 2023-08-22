@@ -1,5 +1,5 @@
 {
-  "name": "BeiJing Water Meter Sensors",
+  "name": "北京水费信息",
   "country": "CN",
   "render_readme": true,
   "homeassistant": "2022.11"
