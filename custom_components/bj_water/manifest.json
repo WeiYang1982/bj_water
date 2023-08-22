@@ -2,7 +2,7 @@
   "domain": "bj_water",
   "name": "北京水费",
   "version": 1,
-  "codeowners": "@WeiYang1982",
+  "codeowners": ["@WeiYang1982"],
   "dependencies": [],
   "documentation": "https://github.com/WeiYang1982/bj_water/blob/main/README.md",
   "iot_class": "cloud_polling",
