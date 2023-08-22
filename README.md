@@ -45,7 +45,7 @@
 ### 配置
 通过UI配置，在集成-北京水费中，输入水表户号即可
 
-[//]: # (<img src="https://github.com/WeiYang1982/bj_water/blob/main/images/config.png" />)
+<img src="https://github.com/WeiYang1982/bj_water/blob/main/images/config.png" />
 
 ### 更新数据
 固定设置为1天更新一次
@@ -70,17 +70,17 @@ UPDATE_INTERVAL = timedelta(days=1)
 
 *sensors列表:*
 
-[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/sensors.png" width="600"/>)
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/sensors.png" width="600"/>
 
 
 *历史账单周期费用*
 
-[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_fee.png" width="600"/>)
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_fee.png" width="600"/>
 
 
 *历史账单周期用量*
 
-[//]: # (<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_usage.png" width="600"/>)
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_usage.png" width="600"/>
 
 
 ## TODO
