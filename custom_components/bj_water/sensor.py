@@ -103,8 +103,12 @@ async def async_setup_entry(
     data = coordinator.data
     for key, value in data.items():
         if key in SENSORS.keys():
-            sensors_list.append(BJWaterSensor(
-                coordinator, user_code, key, value))
+            if isinstance(value, list):
+                for items in value:
+                    for k, v in items.items():
+                        sensors_list.append(BJWaterSensor(coordinator, user_code, key, v, k))
+            else:
+                sensors_list.append(BJWaterSensor(coordinator, user_code, key, value))
         elif key == "cycle":
             dict_data = value
             for k, v in dict_data.items():
@@ -134,12 +138,13 @@ class BJWaterBaseSensor(CoordinatorEntity):
 
 
 class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
-    def __init__(self, coordinator, user_code, sensor_key, sensor_value) -> None:
+    def __init__(self, coordinator, user_code, sensor_key, sensor_value, sensor_num=0) -> None:
         super().__init__(coordinator)
-        self._unique_id = f"{DOMAIN}.{user_code}_{sensor_key}"
+        self._unique_id = f"{DOMAIN}.{user_code}_{sensor_key}" if sensor_num == 0 else f"{DOMAIN}.{user_code}_{sensor_key}_{sensor_num}"
         self.entity_id = self._unique_id
         self.sensor_key = sensor_key
         self.sensor_value = sensor_value
+        self.sensor_num = sensor_num
 
     def get_value(self, attribute=None):
         try:
@@ -151,7 +156,11 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
 
     @property
     def name(self):
-        return SENSORS[self.sensor_key]["name"]
+        name = SENSORS[self.sensor_key]["name"]
+        if self.sensor_num > 0:
+            name = name + "_" + str(self.sensor_num)
+        LOGGER.warn(name + ":" + str(self.sensor_num))
+        return name
 
     @property
     def state(self):

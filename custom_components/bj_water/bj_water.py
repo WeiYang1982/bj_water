@@ -16,7 +16,7 @@ class BJWater:
         self._session = session
         self.user_code = user_code
         self.bill_cycle = set()
-        self.info = {"cycle": {}, "user_code": ""}
+        self.info = {"cycle": {}, "user_code": "", "meter_value": []}
 
     async def get_bill_cycle_range(self):
         """
@@ -147,7 +147,7 @@ class BJWater:
                     },
                     "meter": {
                         "usage": detail_data["total"],
-                        "value": detail_data["endValue"],
+                        "value": [detail_data["endValue"].split("/")],
                     },
                 }
                 self.info["cycle"][bill_cycle].update(amount_detail)
@@ -156,33 +156,29 @@ class BJWater:
                 {
                     "meter": {
                         "usage": detail_data["total"],
-                        "value": detail_data["endValue"],
+                        "value": [detail_data["endValue"].split("/")],
                     }
                 }
             )
-            if "total_usage" not in self.info.keys() or self.info["total_usage"] < int(
-                detail_data["grandTotal"]
-            ):
+            if "total_usage" not in self.info.keys() or self.info["total_usage"] < int(detail_data["grandTotal"]):
                 self.info.update(
                     {"total_usage": int(detail_data["grandTotal"])}
                 )  # 记录第一阶梯总使用量
-            if "meter_value" not in self.info.keys() or self.info["meter_value"] < int(
-                detail_data["endValue"]
-            ):
-                self.info.update(
-                    {"meter_value": int(detail_data["endValue"])}
-                )  # 记录水表总数
-                self.info.update(
-                    {"first_step_left": int(detail_data["stepLeft"]["fist"])}
-                )  # 记录第一阶梯剩余使用量
+            meter_values = detail_data["endValue"].split("/")
+            for i in range(len(meter_values)):
+                if len(self.info["meter_value"]) <= i:
+                    self.info["meter_value"].append({i: int(meter_values[i])})
+                elif "meter_value" in self.info and i < len(self.info["meter_value"]):
+                    existing_value = self.info["meter_value"][i].get(i, None)
+                    if existing_value is None or existing_value < int(meter_values[i]):
+                        self.info["meter_value"][i][i] = int(meter_values[i])
+                        self.info.update({"first_step_left": int(detail_data["stepLeft"]["fist"])})  # 记录第一阶梯剩余使用量
             self.info.update(
                 {"first_step_price": float(detail_data["firstStep"]["price"])}
             )  # 记录第一阶梯水费单价
             self.info.update(
                 {
-                    "wastwater_treatment_price": float(
-                        detail_data["waterborneFee"]["price"]
-                    )
+                    "wastwater_treatment_price": float(detail_data["waterborneFee"]["price"])
                 }
             )  # 污水处理费
             self.info.update(
