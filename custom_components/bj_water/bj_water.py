@@ -3,7 +3,6 @@ import json
 from datetime import datetime
 from .const import LOGGER
 
-
 SERVICE_HOST = "https://www.bjwatergroupkf.com.cn"
 
 
@@ -38,36 +37,30 @@ class BJWater:
             LOGGER.info("get_bill_cycle_range response: " + str(json_body))
             if "months" in json_body["data"].keys() and len(json_body["data"]["months"]) > 0:
                 bill_list = json_body["data"]["months"]
-                year = datetime.now().year
+                bill_list = sorted(bill_list, reverse=True)[0:6]  # 倒序排列后取最近6个账单周期
                 for bill in bill_list:
-                    if str(year) in bill:
-                        cycle_date = (
-                            datetime.strptime(
-                                bill, "%Y年%m月").date().strftime("%Y-%m-%d")
-                        )
-                        self.bill_cycle.add(cycle_date)
-                        self.info["cycle"].update(
-                            {
-                                cycle_date: {
-                                    "fee": {
-                                        "pay": 0,
-                                        "date": cycle_date,
-                                        "amount": 0,
-                                        "szyf": 0,
-                                        "wsf": 0,
-                                        "sf": 0,
-                                    }
+                    cycle_date = (datetime.strptime(bill, "%Y年%m月").date().strftime("%Y-%m-%d"))
+                    self.bill_cycle.add(cycle_date)
+                    self.info["cycle"].update(
+                        {
+                            cycle_date: {
+                                "fee": {
+                                    "pay": 0,
+                                    "date": cycle_date,
+                                    "amount": 0,
+                                    "szyf": 0,
+                                    "wsf": 0,
+                                    "sf": 0,
                                 }
                             }
-                        )
+                        }
+                    )
                 self.info["user_code"] = self.user_code
             else:
                 raise InvalidData(f"未查到账单周期,请检查户号: {self.user_code}!")
         else:
             LOGGER.error(f"get_monthly_bill res state code: {response.status}")
-            raise InvalidData(
-                f"get_bill_month_range response status_code: {response.status}"
-            )
+            raise InvalidData(f"get_bill_month_range response status_code: {response.status}")
         LOGGER.info("get_bill_cycle_range end " + str(self.info))
         return self.bill_cycle
 
@@ -91,11 +84,7 @@ class BJWater:
             if len(bill_list) == 0:
                 raise InvalidData("未查询到缴费记录,请检查水表户号!")
             for bill in json_body["data"]:
-                cycle_date = (
-                    datetime.strptime(bill["billDate"], "%Y年%m月")
-                    .date()
-                    .strftime("%Y-%m-%d")
-                )
+                cycle_date = (datetime.strptime(bill["billDate"], "%Y年%m月").date().strftime("%Y-%m-%d"))
                 if cycle_date in self.bill_cycle:
                     amount_detail = {
                         "fee": {
@@ -112,11 +101,8 @@ class BJWater:
                     self.info["cycle"].update({cycle_date: amount_detail})
             LOGGER.info("get_payment_bill end " + str(self.info))
         else:
-            LOGGER.error("get_payment_bill res state code: %s" %
-                         (response.status))
-            raise InvalidData(
-                f"get_payment_bill response status_code = {response.status}"
-            )
+            LOGGER.error("get_payment_bill res state code: %s" % (response.status))
+            raise InvalidData(f"get_payment_bill response status_code = {response.status}")
 
     async def get_monthly_bill(self, bill_cycle):
         """
@@ -161,9 +147,7 @@ class BJWater:
                 }
             )
             if "total_usage" not in self.info.keys() or self.info["total_usage"] < int(detail_data["grandTotal"]):
-                self.info.update(
-                    {"total_usage": int(detail_data["grandTotal"])}
-                )  # 记录第一阶梯总使用量
+                self.info.update({"total_usage": int(detail_data["grandTotal"])})  # 记录第一阶梯总使用量
             meter_values = detail_data["endValue"].split("/")
             for i in range(len(meter_values)):
                 if len(self.info["meter_value"]) <= i:
@@ -173,36 +157,21 @@ class BJWater:
                     if existing_value is None or existing_value < int(meter_values[i]):
                         self.info["meter_value"][i][i] = int(meter_values[i])
                         self.info.update({"first_step_left": int(detail_data["stepLeft"]["fist"])})  # 记录第一阶梯剩余使用量
-            self.info.update(
-                {"first_step_price": float(detail_data["firstStep"]["price"])}
-            )  # 记录第一阶梯水费单价
-            self.info.update(
-                {
-                    "wastwater_treatment_price": float(detail_data["waterborneFee"]["price"])
-                }
-            )  # 污水处理费
-            self.info.update(
-                {"water_tax": float(detail_data["taxFee"]["price"])}
-            )  # 水资源费
-            self.info.update(
-                {"second_step_left": int(detail_data["stepLeft"]["second"])}
-            )  # 记录第二阶梯剩余使用量
+            self.info.update({"first_step_price": float(detail_data["firstStep"]["price"])})  # 记录第一阶梯水费单价
+            self.info.update({"wastwater_treatment_price": float(detail_data["waterborneFee"]["price"])})  # 污水处理费
+            self.info.update({"water_tax": float(detail_data["taxFee"]["price"])})  # 水资源费
+            self.info.update({"second_step_left": int(detail_data["stepLeft"]["second"])})  # 记录第二阶梯剩余使用量
             self.info.update(
                 {
-                    "total_cost": self.info["water_tax"]
-                    + self.info["first_step_price"]
-                    + self.info["wastwater_treatment_price"]
+                    "total_cost": self.info["water_tax"] + self.info["first_step_price"] + self.info["wastwater_treatment_price"]
                 }
             )
             LOGGER.info("周期使用量: %s" % str(result))
             LOGGER.info(self.info)
             return self.info
         else:
-            LOGGER.error("get_monthly_bill res state code: %s" %
-                         (response.status))
-            raise InvalidData(
-                f"get_monthly_bill response status_code = {response.status}"
-            )
+            LOGGER.error("get_monthly_bill res state code: %s" % (response.status))
+            raise InvalidData(f"get_monthly_bill response status_code = {response.status}")
 
     async def fetch_data(self):
         await self.get_bill_cycle_range()
@@ -210,18 +179,3 @@ class BJWater:
         for bill_date in self.bill_cycle:
             await self.get_monthly_bill(bill_date)
         return self.info
-
-
-# if __name__ == "__main__":
-#     user_code = "051351243"
-#     # user_code = "01"
-#     client = BJWater(user_code)
-#     client.get_payment_bill()
-#     for c in client.bill_cycle:
-#         client.get_monthly_bill(c)
-#     # print(client.get_payment_bill())
-#     print(client.bill_cycle)
-#     print(client.amount_cycle)
-#     print(client.usage_cycle)
-#     print(client.meter_value)
-#     print(client.total_usage)
