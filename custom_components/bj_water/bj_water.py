@@ -39,7 +39,7 @@ class BJWater:
                 bill_list = json_body["data"]["months"]
                 bill_list = sorted(bill_list, reverse=True)[0:6]  # 倒序排列后取最近6个账单周期
                 for bill in bill_list:
-                    cycle_date = (datetime.strptime(bill, "%Y年%m月").date().strftime("%Y-%m-%d"))
+                    cycle_date = (datetime.strptime(bill, "%Y年%m月").date().strftime("%Y-%m"))
                     self.bill_cycle.add(cycle_date)
                     self.info["cycle"].update(
                         {
@@ -83,15 +83,15 @@ class BJWater:
             bill_list = json_body["data"]
             if len(bill_list) == 0:
                 raise InvalidData("未查询到缴费记录,请检查水表户号!")
+            index = 0
             for bill in json_body["data"]:
-                cycle_date = (datetime.strptime(bill["billDate"], "%Y年%m月").date().strftime("%Y-%m-%d"))
+                cycle_date = (datetime.strptime(bill["billDate"], "%Y年%m月").date().strftime("%Y-%m"))
                 if cycle_date in self.bill_cycle:
                     amount_detail = {
+                        "index": index,
                         "fee": {
                             "pay": 1,
-                            "date": datetime.strptime(bill["date"], "%Y.%m.%d")
-                            .date()
-                            .strftime("%Y-%m-%d"),
+                            "date": datetime.strptime(bill["date"], "%Y.%m.%d").date().strftime("%Y-%m-%d"),
                             "amount": bill["amount"],
                             "szyf": bill["szyf"],
                             "wsf": bill["wsf"],
@@ -99,6 +99,7 @@ class BJWater:
                         }
                     }
                     self.info["cycle"].update({cycle_date: amount_detail})
+                index += 1
             LOGGER.info("get_payment_bill end " + str(self.info))
         else:
             LOGGER.error("get_payment_bill res state code: %s" % (response.status))
@@ -123,6 +124,7 @@ class BJWater:
 
             if self.info["cycle"][bill_cycle]["fee"]["pay"] == 0:
                 amount_detail = {
+                    "index": bill_cycle["index"],
                     "fee": {
                         "pay": 0,
                         "date": bill_cycle,

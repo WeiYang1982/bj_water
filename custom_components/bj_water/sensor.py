@@ -91,13 +91,7 @@ async def async_setup_entry(
     user_code = config["userCode"]
     api = BJWater(async_create_clientsession(hass), user_code)
 
-    coordinator = DataUpdateCoordinator(
-        hass,
-        LOGGER,
-        name=DOMAIN,
-        update_interval=UPDATE_INTERVAL,
-        update_method=api.fetch_data,
-    )
+    coordinator = DataUpdateCoordinator(hass, LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL, update_method=api.fetch_data,)
     LOGGER.info("async_setup_entry: " + str(coordinator))
     await coordinator.async_refresh()
     data = coordinator.data
@@ -112,14 +106,9 @@ async def async_setup_entry(
         elif key == "cycle":
             dict_data = value
             for k, v in dict_data.items():
-                sensors_list.append(
-                    BJWaterHistoryFeeSensor(
-                        coordinator, user_code, k, v["fee"])
-                )
-                sensors_list.append(
-                    BJWaterHistoryUsageSensor(
-                        coordinator, user_code, k, v["meter"])
-                )
+                index = v["index"]
+                sensors_list.append(BJWaterHistoryFeeSensor(coordinator, user_code, k, v["fee"], index))
+                sensors_list.append(BJWaterHistoryUsageSensor(coordinator, user_code, k, v["meter"], index))
     async_add_entities(sensors_list, False)
 
 
@@ -190,9 +179,9 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
 
 
 class BJWaterHistoryFeeSensor(BJWaterBaseSensor):
-    def __init__(self, coordinator, user_code, bill_date, sensor_attrs) -> None:
+    def __init__(self, coordinator, user_code, bill_date, sensor_attrs, index) -> None:
         super().__init__(coordinator)
-        self._unique_id = f"{DOMAIN}.{user_code}_{bill_date}_Fee"
+        self._unique_id = f"{DOMAIN}.{user_code}_{index}_Fee"
         self.entity_id = self._unique_id
         self._bill_date = bill_date
         self.sensor_attrs = sensor_attrs
@@ -232,9 +221,9 @@ class BJWaterHistoryFeeSensor(BJWaterBaseSensor):
 
 
 class BJWaterHistoryUsageSensor(BJWaterBaseSensor):
-    def __init__(self, coordinator, user_code, bill_date, sensor_attrs) -> None:
+    def __init__(self, coordinator, user_code, bill_date, sensor_attrs, index) -> None:
         super().__init__(coordinator)
-        self._unique_id = f"{DOMAIN}.{user_code}_{bill_date}_Usage"
+        self._unique_id = f"{DOMAIN}.{user_code}_{index}_Usage"
         self.entity_id = self._unique_id
         self._bill_date = bill_date
         self.sensor_attrs = sensor_attrs
