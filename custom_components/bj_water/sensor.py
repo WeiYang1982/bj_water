@@ -244,13 +244,27 @@ class BJWaterHistoryUsageSensor(BJWaterBaseSensor):
     def unit_of_measurement(self):
         return "m³"
 
+    # @property
+    # def extra_state_attributes(self):
+    #     attrs = {}
+    #     for k, v in self.sensor_attrs.items():
+    #         attrs[HISTORY_USAGE_SENSORS[k]["name"]] = v
+    #     LOGGER.info("BJWaterHistoryUsageSensor: " + str(attrs))
+    #     return attrs
+    
     @property
     def extra_state_attributes(self):
         attrs = {}
         for k, v in self.sensor_attrs.items():
-            attrs[HISTORY_USAGE_SENSORS[k]["name"]] = v
-        LOGGER.info("BJWaterHistoryUsageSensor: " + str(attrs))
+            if k == "usage":
+                attrs[HISTORY_USAGE_SENSORS[k]["name"]] = v
+            elif k == "value":
+                if isinstance(v, list) and len(v) > 0:
+                    value_list = v[0]
+                    if isinstance(value_list, list) and len(value_list) > 0:
+                        attrs[HISTORY_USAGE_SENSORS[k]["name"]] = value_list[0]
         return attrs
+
 
     @property
     def device_class(self) -> str | None:
