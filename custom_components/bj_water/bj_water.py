@@ -14,7 +14,7 @@ class BJWater:
     def __init__(self, session, user_code) -> None:
         self._session = session
         self.user_code = user_code
-        self.bill_cycle = set()
+        self.bill_cycle = {}
         self.info = {"cycle": {}, "user_code": "", "meter_value": []}
 
     async def get_bill_cycle_range(self):
@@ -40,7 +40,7 @@ class BJWater:
                 bill_list = sorted(bill_list, reverse=True)[0:6]  # 倒序排列后取最近6个账单周期
                 for bill in bill_list:
                     cycle_date = (datetime.strptime(bill, "%Y年%m月").date().strftime("%Y-%m"))
-                    self.bill_cycle.add(cycle_date)
+                    self.bill_cycle[cycle_date] = bill
                     self.info["cycle"].update(
                         {
                             cycle_date: {
@@ -105,14 +105,14 @@ class BJWater:
             LOGGER.error("get_payment_bill res state code: %s" % (response.status))
             raise InvalidData(f"get_payment_bill response status_code = {response.status}")
 
-    async def get_monthly_bill(self, bill_cycle):
+    async def get_monthly_bill(self, bill_cycle, index):
         """
         获取单个月份的账单详情
         :param bill_cycle: 账单周期 如 2023年6月
         :return:
         """
         monthly_api = SERVICE_HOST + "/api/member/bizMyWater/getPcMonthlyBill"
-        params = {"userCode": self.user_code, "billDate": bill_cycle}
+        params = {"userCode": self.user_code, "billDate": self.bill_cycle[bill_cycle]}
         response = await self._session.get(url=monthly_api, params=params, timeout=10)
         if response.status == 200:
             json_body = json.loads(await response.read())
@@ -124,7 +124,7 @@ class BJWater:
 
             if self.info["cycle"][bill_cycle]["fee"]["pay"] == 0:
                 amount_detail = {
-                    "index": bill_cycle["index"],
+                    "index": index,
                     "fee": {
                         "pay": 0,
                         "date": bill_cycle,
@@ -178,6 +178,8 @@ class BJWater:
     async def fetch_data(self):
         await self.get_bill_cycle_range()
         await self.get_payment_bill()
+        index = 0
         for bill_date in self.bill_cycle:
-            await self.get_monthly_bill(bill_date)
+            await self.get_monthly_bill(bill_date, index)
+            index += 1
         return self.info
