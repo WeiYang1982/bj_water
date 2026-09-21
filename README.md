@@ -5,6 +5,10 @@
 [![Stable](https://img.shields.io/github/v/release/WeiYang1982/bj_water)](https://github.com/WeiYang1982/bj_water/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
+# v2更新
+1. 由于接口变动，需要抓包获取token、secretKey、md5Salt三个参数，重新设计config flow，页面上增加这三个参数，并增加加解密逻辑
+2. 由于token会过期，尚未找到刷新token的相关接口，所以增加了有效期相关sensor，104天过期
+3. 解决之前版本的语法错误
 
 
 ## 功能
@@ -40,10 +44,11 @@
 
 使用[HACS](https://hacs.xyz/)或[手动下载安装](https://github.com/WeiYang1982/bj_water/releases)
 
-**注意：本集成需求`Home Assistant`最低版本为`2022.11`**
+**注意：本集成需求`Home Assistant`最低版本为`2026.8`**
 
 ### 配置
-通过UI配置，在集成-北京水费中，输入水表户号即可
+1. 抓取小程序中登录接口/api/member/bizUsers/miniAppLogin，会返回token、secretKey、md5Salt三个参数(自行搜索方法)
+2. 通过UI配置，在集成-北京水费中，输入水表户号，以及刚刚抓取的三个参数
 
 <img src="https://github.com/WeiYang1982/bj_water/blob/main/images/config.png" />
 

@@ -1,22 +1,43 @@
 {
-  "config": {
-    "step": {
-      "user": {
-        "title": "北京水费",
-        "description": "用于查询北京自来水使用量以及水费等信息",
-        "data": {
-          "userCode": "水表户号"
-        }
+  "title": "北京水费",
+  "step": {
+    "user": {
+      "description": "请输入您的北京水费户号、登录 Token 和加密密钥。",
+      "data": {
+        "userCode": "水表户号",
+        "token": "登录 Token（从网页/APP获取）",
+        "secretKeyEnc": "Secret Key 加密串",
+        "md5SaltEnc": "MD5 Salt 加密串"
       }
     },
-    "error": {
-      "cannot_connect": "网络异常",
-      "invalid_auth": "未查询到内容,请检查户号",
-      "invalid_format": "户号格式错误",
-      "unknown": "未知错误"
-    },
-    "abort": {
-      "already_configured": "账号已添加，请勿重复添加"
+    "reauth_confirm": {
+      "description": "Token 或加密参数已失效，请重新输入登录 Token 和加密密钥",
+      "data": {
+        "token": "新的登录 Token",
+        "secretKeyEnc": "新的 Secret Key 加密串",
+        "md5SaltEnc": "新的 MD5 Salt 加密串"
+      }
+    }
+  },
+  "error": {
+    "cannot_connect": "连接失败，请检查网络连接",
+    "invalid_auth": "户号或Token无效，请重新输入",
+    "invalid_format": "户号格式不正确，请输入数字",
+    "unknown": "发生未知错误，请稍后重试"
+  },
+  "abort": {
+    "already_configured": "该户号已经配置过",
+    "reauth_successful": "Token 更新成功"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "重置 Token 有效期计时器",
+        "data": {
+          "reset_token": "确认重置"
+        }
+      }
     }
   }
 }
+
