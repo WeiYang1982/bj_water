@@ -150,6 +150,18 @@ class TokenValiditySensor(SensorEntity):
                 attrs["时间状态"] = "未知"
         return attrs
 
+    def async_added_to_hass(self) -> None:
+        """Run when entity is added to HA."""
+        # 监听 config entry 更新，当 auth_status 等数据变化时刷新 sensor 状态
+        self.async_on_remove(
+            self._entry.add_update_listener(self._on_entry_updated)
+        )
+
+    async def _on_entry_updated(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Handle config entry data updates."""
+        self._entry = entry
+        self.async_schedule_update_ha_state()
+
     def async_reset_token(self, hass: HomeAssistant) -> None:
         """Reset token validity timestamp."""
         now_iso = datetime.now(timezone.utc).isoformat()
