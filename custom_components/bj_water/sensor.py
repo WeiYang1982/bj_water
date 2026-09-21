@@ -110,7 +110,13 @@ async def async_setup_entry(
         update_method=api.fetch_data,
     )
     LOGGER.info("async_setup_entry: %s", coordinator)
-    await coordinator.async_refresh()
+
+    # 尝试刷新数据，如果失败（如认证失败），coordinator.data 为 None
+    # 但仍然继续注册 sensor（token 有效期 sensor 不需要 coordinator 数据）
+    try:
+        await coordinator.async_refresh()
+    except Exception as exc:
+        LOGGER.warning(f"初始数据刷新失败（可能是认证问题），继续注册 sensor: {exc}")
     data = coordinator.data
 
     # 添加数据相关的传感器
@@ -138,11 +144,14 @@ async def async_setup_entry(
     expected_unique_id = f"{DOMAIN}.{user_code}_token_validity"
 
     # 查找所有可能冲突的旧 entity（同名但不同 unique_id 的残留实体）
-    # 直接更新它们的 unique_id，这样 HA 会复用同一个 entity_id，避免创建 _2
+    # 包括各种旧名称生成的 entity_id（中文转拼音形式）
+    old_entity_ids = [
+        "sensor.token_you_xiao_qi",               # "Token 有效期"
+        "sensor.token_you_xiao_qi_sheng_yu_tian_shu",  # "Token 有效期剩余天数"
+        "sensor.token_validity",                   # "Token Validity"
+    ]
     for suffix in ["", "_2", "_3", "_4", "_5", "_6", "_7", "_8", "_9", "_10"]:
-        for base_name in [
-            "sensor.token_you_xiao_qi_sheng_yu_tian_shu",
-        ]:
+        for base_name in old_entity_ids:
             existing = entity_registry.async_get(f"{base_name}{suffix}")
             if existing is not None and existing.unique_id != expected_unique_id:
                 LOGGER.info(f"更新旧实体的 unique_id: {existing.entity_id} -> {expected_unique_id}")

@@ -41,13 +41,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 尝试刷新数据。如果认证失败，DataUpdateCoordinator 会捕获 ConfigEntryAuthFailed
     # 并自动调用 async_start_reauth，无需手动处理。
+    # 注意：即使认证失败，也要继续加载 sensor 平台，让 token 有效期 sensor 能显示状态
     try:
         await coordinator.async_refresh()
+        # 刷新成功，更新认证状态
+        if entry.data.get("auth_status") != "ok":
+            new_data = dict(entry.data)
+            new_data["auth_status"] = "ok"
+            hass.config_entries.async_update_entry(entry, data=new_data)
     except ConfigEntryAuthFailed:
+        # 认证失败：更新认证状态并启动重新认证流程
+        LOGGER.warning("初始数据认证失败，启动重新认证流程")
+        new_data = dict(entry.data)
+        new_data["auth_status"] = "failed"
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        # 启动重新认证，但不 raise，让 sensor 平台继续加载
         entry.async_start_reauth(hass)
-        raise
     except InvalidData:
-        raise
+        # 数据错误（如户号无效）：记录但继续
+        LOGGER.warning(f"初始数据刷新失败: {InvalidData}")
 
     hass.data[DOMAIN][entry.entry_id] = {
         "config": {
@@ -75,16 +87,19 @@ class TokenValiditySensor(SensorEntity):
     def __init__(self, entry):
         """Initialize the sensor."""
         self._entry = entry
-        # 使用 unique_id 确保 HA 能通过实体注册表正确复用同一实体
+        # 使用纯英文名称，确保 entity_id 稳定（中文会被转拼音，可能变化）
         self._attr_unique_id = f"{DOMAIN}.{entry.data['userCode']}_token_validity"
-        self._attr_name = "Token 有效期"
+        self._attr_name = "Token Validity"
         self._attr_icon = "mdi:clock-alert"
-        self._attr_native_unit_of_measurement = "天"
+        self._attr_native_unit_of_measurement = "days"
         self._attr_should_poll = False
 
     @property
     def state(self):
-        """Return the remaining days."""
+        """Return the remaining days or auth failure status."""
+        # 如果认证失败，显示认证失败状态
+        if self._entry.data.get("auth_status") == "failed":
+            return "认证失败"
         token_added_at = self._entry.data.get("token_added_at")
         if not token_added_at:
             return None
@@ -103,8 +118,17 @@ class TokenValiditySensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         """Return additional attributes."""
-        token_added_at = self._entry.data.get("token_added_at")
         attrs = {}
+        # 认证状态
+        auth_status = self._entry.data.get("auth_status")
+        if auth_status == "failed":
+            attrs["认证状态"] = "失败"
+        elif auth_status == "ok":
+            attrs["认证状态"] = "正常"
+        else:
+            attrs["认证状态"] = "未知"
+
+        token_added_at = self._entry.data.get("token_added_at")
         if token_added_at:
             attrs["添加时间"] = token_added_at
             try:
@@ -117,13 +141,13 @@ class TokenValiditySensor(SensorEntity):
                 attrs["已使用天数"] = elapsed_days
                 attrs["总有效期"] = TOKEN_VALIDITY_DAYS
                 if remaining <= 0:
-                    attrs["状态"] = "已过期"
+                    attrs["时间状态"] = "已过期"
                 elif remaining <= 7:
-                    attrs["状态"] = "即将过期"
+                    attrs["时间状态"] = "即将过期"
                 else:
-                    attrs["状态"] = "有效"
+                    attrs["时间状态"] = "有效"
             except (ValueError, TypeError):
-                attrs["状态"] = "未知"
+                attrs["时间状态"] = "未知"
         return attrs
 
     def async_reset_token(self, hass: HomeAssistant) -> None:
