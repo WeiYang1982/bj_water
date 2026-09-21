@@ -132,6 +132,25 @@ async def async_setup_entry(
 
     # 始终添加 token 有效期传感器（不依赖 coordinator data）
     from . import TokenValiditySensor
+    from homeassistant.helpers import entity_registry as er
+
+    entity_registry = er.async_get(hass)
+    expected_unique_id = f"{DOMAIN}.{user_code}_token_validity"
+
+    # 查找所有可能冲突的旧 entity（同名但不同 unique_id 的残留实体）
+    # 直接更新它们的 unique_id，这样 HA 会复用同一个 entity_id，避免创建 _2
+    for suffix in ["", "_2", "_3", "_4", "_5", "_6", "_7", "_8", "_9", "_10"]:
+        for base_name in [
+            "sensor.token_you_xiao_qi_sheng_yu_tian_shu",
+        ]:
+            existing = entity_registry.async_get(f"{base_name}{suffix}")
+            if existing is not None and existing.unique_id != expected_unique_id:
+                LOGGER.info(f"更新旧实体的 unique_id: {existing.entity_id} -> {expected_unique_id}")
+                entity_registry.async_update_entity(
+                    existing.entity_id,
+                    new_unique_id=expected_unique_id,
+                )
+
     token_sensor = TokenValiditySensor(config_entry)
     sensors_list.append(token_sensor)
 

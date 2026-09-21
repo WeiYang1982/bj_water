@@ -1,13 +1,14 @@
 """The 北京水费 integration."""
 from __future__ import annotations
 
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.sensor import SensorEntity
 
-from .bj_water import BJWater
+from .bj_water import BJWater, InvalidData
 from .const import DOMAIN, LOGGER, UPDATE_INTERVAL, TOKEN_VALIDITY_DAYS
 from datetime import datetime, timezone
 
@@ -38,17 +39,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         update_method=api.fetch_data,
     )
 
-    # 尝试刷新数据，如果失败且是认证错误，触发重新认证
+    # 尝试刷新数据。如果认证失败，DataUpdateCoordinator 会捕获 ConfigEntryAuthFailed
+    # 并自动调用 async_start_reauth，无需手动处理。
     try:
         await coordinator.async_refresh()
-    except InvalidData as exc:
-        error_msg = str(exc)
-        # 触发重新认证的条件：登录失败、未登录、或加密参数错误
-        if ("登录失败" in error_msg or "未登录" in error_msg or
-                "解码失败" in error_msg or "解密失败" in error_msg):
-            LOGGER.warning("触发重新认证流程: %s", error_msg)
-            entry.async_start_reauth(hass)
-        # 重新抛出异常，让 HA 知道 setup 失败了
+    except ConfigEntryAuthFailed:
+        entry.async_start_reauth(hass)
+        raise
+    except InvalidData:
         raise
 
     hass.data[DOMAIN][entry.entry_id] = {
@@ -77,8 +75,9 @@ class TokenValiditySensor(SensorEntity):
     def __init__(self, entry):
         """Initialize the sensor."""
         self._entry = entry
+        # 使用 unique_id 确保 HA 能通过实体注册表正确复用同一实体
         self._attr_unique_id = f"{DOMAIN}.{entry.data['userCode']}_token_validity"
-        self._attr_name = "Token 有效期剩余天数"
+        self._attr_name = "Token 有效期"
         self._attr_icon = "mdi:clock-alert"
         self._attr_native_unit_of_measurement = "天"
         self._attr_should_poll = False

@@ -9,7 +9,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 
 from .bj_water import BJWater, InvalidData
 from .const import DOMAIN, LOGGER
@@ -38,6 +38,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         try:
             await api.get_bill_cycle_range()
         except InvalidData as exc:
+            LOGGER.error(str(exc))
+            raise InvalidAuth from exc
+        except ConfigEntryAuthFailed as exc:
             LOGGER.error(str(exc))
             raise InvalidAuth from exc
         except RequestException:
@@ -145,7 +148,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("md5SaltEnc", default=entry.data.get("md5SaltEnc", "")): str,
             }),
             errors=errors,
-            description_text="Token 或加密参数已失效，请重新输入登录 Token 和加密密钥",
         )
 
 

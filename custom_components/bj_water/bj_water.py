@@ -6,6 +6,7 @@ import string
 import time
 from datetime import datetime
 from .const import LOGGER
+from homeassistant.exceptions import ConfigEntryAuthFailed
 
 SERVICE_HOST = "https://www.bjwatergroupkf.com.cn"
 
@@ -127,8 +128,11 @@ class BJWater:
         result = json.loads(await response.read())
         LOGGER.info(f"_request response: {result}")
 
-        if result.get("code") == 1001:
-            raise InvalidData(f"登录失败: {result.get('msg', '未登录或登录超时')}，请检查token是否正确")
+        # 认证相关错误：抛出 ConfigEntryAuthFailed，触发 HA 自动重新认证流程
+        if result.get("code") in (1001, 1206):
+            raise ConfigEntryAuthFailed(
+                f"认证失败: {result.get('msg', '未知错误')}，请检查 token 和用户号是否匹配"
+            )
 
         if result.get("code") != 0:
             LOGGER.error(f"API错误: code={result.get('code')}, msg={result.get('msg')}")
