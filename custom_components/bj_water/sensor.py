@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN, LOGGER, UPDATE_INTERVAL
 from .bj_water import BJWater
@@ -160,7 +161,7 @@ async def async_setup_entry(
                     new_unique_id=expected_unique_id,
                 )
 
-    token_sensor = TokenValiditySensor(config_entry)
+    token_sensor = TokenValiditySensor(config_entry, user_code)
     sensors_list.append(token_sensor)
 
     async_add_entities(sensors_list, update_before_add=True)
@@ -171,10 +172,14 @@ class BJWaterBaseSensor(CoordinatorEntity):
 
     _attr_should_poll = False
 
-    def __init__(self, coordinator: DataUpdateCoordinator) -> None:
+    def __init__(self, coordinator: DataUpdateCoordinator, user_code: str) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self._user_code = user_code
         self._attr_unique_id = None
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, user_code)},
+        )
 
 
 class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
@@ -189,7 +194,7 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
         sensor_num: int = 0,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, user_code)
         if sensor_num == 0:
             self._attr_unique_id = f"{DOMAIN}.{user_code}_{sensor_key}"
         else:
@@ -225,7 +230,7 @@ class BJWaterHistoryFeeSensor(BJWaterBaseSensor, SensorEntity):
         index: int,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, user_code)
         self._attr_unique_id = f"{DOMAIN}.{user_code}_{index}_Fee"
         self._attr_name = bill_date.replace("-", "") + "_Fee"
         self._attr_icon = "mdi:currency-cny"
@@ -262,7 +267,7 @@ class BJWaterHistoryUsageSensor(BJWaterBaseSensor, SensorEntity):
         index: int,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, user_code)
         self._attr_unique_id = f"{DOMAIN}.{user_code}_{index}_Usage"
         self._attr_name = bill_date.replace("-", "") + "_Usage"
         self._attr_icon = "mdi:water-circle"

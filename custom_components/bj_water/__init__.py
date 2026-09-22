@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.device_registry import async_get as dr_async_get
 from homeassistant.components.sensor import SensorEntity
 
 from .bj_water import BJWater, InvalidData
@@ -68,6 +69,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
     }
 
+    # 在设备注册表中注册一个设备，使其关联到本集成（config_entry），
+    # 这样实体才能被"按集成"筛选到。
+    device_registry = dr_async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, user_code)},
+        name=f"北京水费 {user_code}",
+        manufacturer="bj_water",
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     return True
@@ -84,15 +95,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class TokenValiditySensor(SensorEntity):
     """Sensor to track token validity remaining days."""
 
-    def __init__(self, entry):
+    def __init__(self, entry, user_code):
         """Initialize the sensor."""
         self._entry = entry
         # 使用纯英文名称，确保 entity_id 稳定（中文会被转拼音，可能变化）
-        self._attr_unique_id = f"{DOMAIN}.{entry.data['userCode']}_token_validity"
+        self._attr_unique_id = f"{DOMAIN}.{user_code}_token_validity"
         self._attr_name = "Token Validity"
         self._attr_icon = "mdi:clock-alert"
         self._attr_native_unit_of_measurement = "days"
         self._attr_should_poll = False
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, user_code)},
+            "name": f"北京水费 {user_code}",
+            "manufacturer": "bj_water",
+        }
 
     @property
     def state(self):
@@ -150,7 +166,7 @@ class TokenValiditySensor(SensorEntity):
                 attrs["时间状态"] = "未知"
         return attrs
 
-    def async_added_to_hass(self) -> None:
+    async def async_added_to_hass(self) -> None:
         """Run when entity is added to HA."""
         # 监听 config entry 更新，当 auth_status 等数据变化时刷新 sensor 状态
         self.async_on_remove(
