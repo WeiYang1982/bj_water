@@ -78,6 +78,13 @@ SENSORS: dict[str, dict[str, object]] = {
         "device_class": SensorDeviceClass.MONETARY,
         "state_class": SensorStateClass.MEASUREMENT,
     },
+    "total_cost_accumulated": {
+        "name": "累计水费",
+        "icon": "mdi:cash-multiple",
+        "unit_of_measurement": "CNY",
+        "device_class": SensorDeviceClass.MONETARY,
+        "state_class": SensorStateClass.TOTAL,
+    },
 }
 
 

@@ -308,6 +308,11 @@ class BJWater:
             first_cycle_date = next(iter(self.info["cycle"]))
             latest_fee = self.info["cycle"][first_cycle_date].get("fee", {})
             self.info["latest_bill_amount"] = latest_fee.get("amount")
+        # 累计水费：所有账期费用之和，用于统计年度/历史总费用
+        self.info["total_cost_accumulated"] = sum(
+            cycle_data.get("fee", {}).get("amount", 0)
+            for cycle_data in self.info["cycle"].values()
+        )
         return self.info
 
     async def reset_token_timestamp(self, entry, hass):
