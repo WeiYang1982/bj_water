@@ -160,6 +160,9 @@ class BJWater:
         result = await self._request("GET", "member/bizMyWater/getMonthsAndYears", {"userCode": self.user_code})
 
         if "months" in result["data"].keys() and len(result["data"]["months"]) > 0:
+            # 重置账期数据，避免多次刷新时累积
+            self.bill_cycle = {}
+            self.info["cycle"] = {}
             bill_list = sorted(result["data"]["months"], reverse=True)[:6]  # 倒序排列后取最近6个账单周期
             for bill in bill_list:
                 cycle_date = datetime.strptime(bill, "%Y年%m月").date().strftime("%Y-%m")
@@ -264,8 +267,11 @@ class BJWater:
                 }
             }
         )
-        if "total_usage" not in self.info.keys() or self.info["total_usage"] < int(detail_data["grandTotal"]):
-            self.info.update({"total_usage": int(detail_data["grandTotal"])})
+        # 累计用水量：使用当期总用量(detail_data["total"]，跨阶梯)，
+        # 而非 grandTotal（可能仅为第一阶梯用量，上限180m³）
+        if "total_usage" not in self.info.keys():
+            self.info["total_usage"] = 0
+        self.info["total_usage"] += int(detail_data["total"])
         meter_values = detail_data["endValue"].split("/")
         for i in range(len(meter_values)):
             if len(self.info["meter_value"]) <= i:
@@ -291,6 +297,8 @@ class BJWater:
     async def fetch_data(self):
         await self.get_bill_cycle_range()
         await self.get_payment_bill()
+        # 重置累计用水量，避免每次刷新时重复累加
+        self.info["total_usage"] = 0
         index = 0
         for bill_date in self.bill_cycle:
             await self.get_monthly_bill(bill_date, index)
