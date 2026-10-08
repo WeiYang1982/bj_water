@@ -295,6 +295,11 @@ class BJWater:
         for bill_date in self.bill_cycle:
             await self.get_monthly_bill(bill_date, index)
             index += 1
+        # 当期水费：取最近（第一个）账期的总费用，用于能源面板统计
+        if self.info["cycle"]:
+            first_cycle_date = next(iter(self.info["cycle"]))
+            latest_fee = self.info["cycle"][first_cycle_date].get("fee", {})
+            self.info["latest_bill_amount"] = latest_fee.get("amount")
         return self.info
 
     async def reset_token_timestamp(self, entry, hass):

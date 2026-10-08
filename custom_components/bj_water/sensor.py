@@ -23,12 +23,12 @@ from .bj_water import BJWater
 
 SENSORS: dict[str, dict[str, object]] = {
     "total_usage": {
-        "name": "第一阶梯总用量",
+        "name": "累计用水量",
         "icon": "mdi:water-pump",
         "unit_of_measurement": "m³",
         "attributes": ["last_update"],
         "device_class": SensorDeviceClass.WATER,
-        "state_class": SensorStateClass.TOTAL,
+        "state_class": SensorStateClass.TOTAL_INCREASING,
     },
     "meter_value": {
         "name": "水表总数",
@@ -70,7 +70,13 @@ SENSORS: dict[str, dict[str, object]] = {
         "name": "当前水费总单价",
         "icon": "mdi:cash-100",
         "unit_of_measurement": "CNY/m³",
-        "device_class": SensorDeviceClass.WATER,
+    },
+    "latest_bill_amount": {
+        "name": "当期水费",
+        "icon": "mdi:cash",
+        "unit_of_measurement": "CNY",
+        "device_class": SensorDeviceClass.MONETARY,
+        "state_class": SensorStateClass.MEASUREMENT,
     },
 }
 
