@@ -75,18 +75,19 @@ SENSORS: dict[str, dict[str, object]] = {
 }
 
 
-HISTORY_FEE_SENSORS: dict[str, dict[str, str]] = {
-    "amount": {"name": "总水费"},
-    "szyf": {"name": "水资源费"},
-    "wsf": {"name": "污水处理费"},
-    "sf": {"name": "水费"},
-    "pay": {"name": "缴费状态"},
-    "date": {"name": "缴费日期"},
+# 历史账单数据的属性标签映射
+HISTORY_FEE_LABELS: dict[str, str] = {
+    "amount": "总水费",
+    "szyf": "水资源费",
+    "wsf": "污水处理费",
+    "sf": "水费",
+    "pay": "缴费状态",
+    "date": "缴费日期",
 }
 
-HISTORY_USAGE_SENSORS: dict[str, dict[str, str]] = {
-    "usage": {"name": "总用水量"},
-    "value": {"name": "水表数"},
+HISTORY_USAGE_LABELS: dict[str, str] = {
+    "usage": "用水量",
+    "value": "水表数",
 }
 
 
@@ -131,11 +132,8 @@ async def async_setup_entry(
                 else:
                     sensors_list.append(BJWaterSensor(coordinator, user_code, key, value))
             elif key == "cycle":
-                dict_data = value
-                for k, v in dict_data.items():
-                    index = v["index"]
-                    sensors_list.append(BJWaterHistoryFeeSensor(coordinator, user_code, k, v["fee"], index))
-                    sensors_list.append(BJWaterHistoryUsageSensor(coordinator, user_code, k, v["meter"], index))
+                # 所有账期的数据合并到一个历史账单传感器中
+                sensors_list.append(BJWaterHistorySensor(coordinator, user_code))
 
     # 始终添加 token 有效期传感器（不依赖 coordinator data）
     from . import TokenValiditySensor
@@ -143,6 +141,20 @@ async def async_setup_entry(
 
     entity_registry = er.async_get(hass)
     expected_unique_id = f"{DOMAIN}.{user_code}_token_validity"
+
+    # 清理旧的按账期创建的传感器实体（以 _Fee / _Usage 结尾的历史传感器）
+    history_unique_id_prefix = f"{DOMAIN}.{user_code}_"
+    for entity_id, entity_entry in list(entity_registry.entities.items()):
+        uid = entity_entry.unique_id
+        if (
+            entity_entry.config_entry_id == config_entry.entry_id
+            and uid
+            and uid.startswith(history_unique_id_prefix)
+            and uid != f"{DOMAIN}.{user_code}_history"
+            and (uid.endswith("_Fee") or uid.endswith("_Usage"))
+        ):
+            LOGGER.info("移除旧的历史传感器实体: %s (unique_id: %s)", entity_id, uid)
+            entity_registry.async_remove(entity_id)
 
     # 查找所有可能冲突的旧 entity（同名但不同 unique_id 的残留实体）
     # 包括各种旧名称生成的 entity_id（中文转拼音形式）
@@ -218,78 +230,79 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
         return self._sensor_value
 
 
-class BJWaterHistoryFeeSensor(BJWaterBaseSensor, SensorEntity):
-    """Representation of a historical fee sensor."""
+class BJWaterHistorySensor(BJWaterBaseSensor, SensorEntity):
+    """单个传感器，聚合所有历史账期的账单数据。
+
+    state 返回最近账期的总水费，
+    extra_state_attributes 包含所有账期的完整数据（水费 + 用水量），便于统计。
+    """
 
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
         user_code: str,
-        bill_date: str,
-        sensor_attrs: dict,
-        index: int,
     ) -> None:
-        """Initialize the sensor."""
+        """Initialize the history sensor."""
         super().__init__(coordinator, user_code)
-        self._attr_unique_id = f"{DOMAIN}.{user_code}_{index}_Fee"
-        self._attr_name = bill_date.replace("-", "") + "_Fee"
-        self._attr_icon = "mdi:currency-cny"
+        self._attr_unique_id = f"{DOMAIN}.{user_code}_history"
+        self._attr_name = "历史账单"
+        self._attr_icon = "mdi:chart-timeline-variant"
         self._attr_native_unit_of_measurement = "CNY"
-        self._sensor_attrs = sensor_attrs
         self._attr_device_class = SensorDeviceClass.MONETARY
 
-    @property
-    def state(self) -> object:
-        """Return the state of the sensor."""
-        return self._sensor_attrs["amount"]
-
-    @property
-    def extra_state_attributes(self) -> dict[str, object]:
-        """Return the state attributes."""
-        attrs: dict[str, object] = {}
-        for k, v in self._sensor_attrs.items():
-            attrs[HISTORY_FEE_SENSORS[k]["name"]] = v
-            if k == "pay":
-                attrs[HISTORY_FEE_SENSORS[k]["name"]] = "未缴费" if v == 0 else "已缴费"
-        LOGGER.info("BJWaterHistoryFeeSensor: %s", attrs)
-        return attrs
-
-
-class BJWaterHistoryUsageSensor(BJWaterBaseSensor, SensorEntity):
-    """Representation of a historical usage sensor."""
-
-    def __init__(
-        self,
-        coordinator: DataUpdateCoordinator,
-        user_code: str,
-        bill_date: str,
-        sensor_attrs: dict,
-        index: int,
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, user_code)
-        self._attr_unique_id = f"{DOMAIN}.{user_code}_{index}_Usage"
-        self._attr_name = bill_date.replace("-", "") + "_Usage"
-        self._attr_icon = "mdi:water-circle"
-        self._attr_native_unit_of_measurement = "m³"
-        self._sensor_attrs = sensor_attrs
-        self._attr_device_class = SensorDeviceClass.WATER
+    def _get_sorted_cycles(self) -> list[tuple[str, dict]]:
+        """返回按日期倒序排列的账期数据（最近账期在前）。"""
+        data = self.coordinator.data
+        if not data or "cycle" not in data:
+            return []
+        cycles = data.get("cycle", {})
+        return sorted(cycles.items(), key=lambda item: item[0], reverse=True)
 
     @property
     def state(self) -> object:
-        """Return the state of the sensor."""
-        return self._sensor_attrs["usage"]
+        """返回最近账期的总水费。"""
+        sorted_cycles = self._get_sorted_cycles()
+        if not sorted_cycles:
+            return None
+        latest_fee = sorted_cycles[0][1].get("fee", {})
+        return latest_fee.get("amount")
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Return the state attributes."""
-        attrs: dict[str, object] = {}
-        for k, v in self._sensor_attrs.items():
-            if k == "usage":
-                attrs[HISTORY_USAGE_SENSORS[k]["name"]] = v
-            elif k == "value":
-                if isinstance(v, list) and len(v) > 0:
-                    value_list = v[0]
-                    if isinstance(value_list, list) and len(value_list) > 0:
-                        attrs[HISTORY_USAGE_SENSORS[k]["name"]] = value_list[0]
+        """返回所有历史账期的数据列表。"""
+        sorted_cycles = self._get_sorted_cycles()
+        periods: list[dict[str, object]] = []
+        for cycle_date, cycle_data in sorted_cycles:
+            fee = cycle_data.get("fee", {})
+            meter = cycle_data.get("meter", {})
+
+            period: dict[str, object] = {"账期": cycle_date}
+
+            # 水费相关属性
+            for k, v in fee.items():
+                if k not in HISTORY_FEE_LABELS:
+                    continue
+                label = HISTORY_FEE_LABELS[k]
+                if k == "pay":
+                    period[label] = "已缴费" if v == 1 else "未缴费"
+                else:
+                    period[label] = v
+
+            # 用水量
+            period["用水量"] = meter.get("usage")
+
+            # 水表数（嵌套列表中取第一个值）
+            value = meter.get("value")
+            if isinstance(value, list) and len(value) > 0:
+                value_list = value[0]
+                if isinstance(value_list, list) and len(value_list) > 0:
+                    period["水表数"] = value_list[0]
+
+            periods.append(period)
+
+        attrs: dict[str, object] = {
+            "历史账单": periods,
+            "最近账期": sorted_cycles[0][0] if sorted_cycles else None,
+        }
+        LOGGER.debug("BJWaterHistorySensor attributes: %s", attrs)
         return attrs
