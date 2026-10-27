@@ -1,0 +1,45 @@
+{
+  "title": "北京水费",
+  "config": {
+    "step": {
+      "user": {
+        "title": "手机号登录",
+        "description": "输入注册“北京自来水”App 的手机号，提交后会向该手机号发送短信验证码。",
+        "data": {
+          "phone": "手机号"
+        }
+      },
+      "sms_code": {
+        "title": "输入短信验证码",
+        "description": "输入收到的短信验证码完成登录。登录成功后会自动列出账号下所有水表户号，由你选择要为哪个户号创建集成。",
+        "data": {
+          "phoneCode": "短信验证码",
+          "userCode": "水表户号（可留空，登录后选择）"
+        }
+      },
+      "select_meter": {
+        "title": "选择水表户号",
+        "description": "账号下共有 {count} 个户号，请选择要为哪个户号创建集成；如需添加其他户号，再次添加本集成即可。",
+        "data": {
+          "userCode": "水表户号"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "连接失败，请检查网络连接",
+      "code_send_failed": "验证码发送失败，请确认该手机号已注册北京自来水账号，或稍后再试",
+      "invalid_phone": "手机号格式不正确，请输入 11 位手机号",
+      "invalid_code": "验证码错误或已过期，请重新输入",
+      "invalid_auth": "登录态无效，请重新登录",
+      "invalid_user_code": "户号格式不正确，请输入数字户号",
+      "user_code_required": "未能自动获取水表户号，请手动填写",
+      "user_code_not_bound": "该户号不在当前账号的绑定列表中，请检查后重试或先到 App 里绑定该水表",
+      "invalid_format": "户号格式不正确，请输入数字",
+      "unknown": "发生未知错误，请稍后重试"
+    },
+    "abort": {
+      "already_configured": "该户号已经配置过",
+      "reauth_successful": "重新登录成功"
+    }
+  }
+}

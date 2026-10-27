@@ -11,7 +11,7 @@ from homeassistant.components.sensor import SensorEntity
 
 from .bj_water import BJWater, InvalidData
 from .const import DOMAIN, LOGGER, UPDATE_INTERVAL, TOKEN_VALIDITY_DAYS
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -116,20 +116,10 @@ class TokenValiditySensor(SensorEntity):
         # 如果认证失败，显示认证失败状态
         if self._entry.data.get("auth_status") == "failed":
             return "认证失败"
-        token_added_at = self._entry.data.get("token_added_at")
-        if not token_added_at:
+        expires_at = self._expires_at()
+        if expires_at is None:
             return None
-        try:
-            added_time = datetime.fromisoformat(token_added_at)
-            # 如果时区信息缺失，假设为 UTC
-            if added_time.tzinfo is None:
-                added_time = added_time.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            elapsed_days = (now - added_time).days
-            remaining = TOKEN_VALIDITY_DAYS - elapsed_days
-            return max(remaining, 0)
-        except (ValueError, TypeError):
-            return None
+        return max((expires_at - datetime.now(timezone.utc)).days, 0)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -144,27 +134,64 @@ class TokenValiditySensor(SensorEntity):
         else:
             attrs["认证状态"] = "未知"
 
-        token_added_at = self._entry.data.get("token_added_at")
-        if token_added_at:
-            attrs["添加时间"] = token_added_at
-            try:
-                added_time = datetime.fromisoformat(token_added_at)
-                if added_time.tzinfo is None:
-                    added_time = added_time.replace(tzinfo=timezone.utc)
-                now = datetime.now(timezone.utc)
-                elapsed_days = (now - added_time).days
-                remaining = TOKEN_VALIDITY_DAYS - elapsed_days
-                attrs["已使用天数"] = elapsed_days
-                attrs["总有效期"] = TOKEN_VALIDITY_DAYS
-                if remaining <= 0:
-                    attrs["时间状态"] = "已过期"
-                elif remaining <= 7:
-                    attrs["时间状态"] = "即将过期"
-                else:
-                    attrs["时间状态"] = "有效"
-            except (ValueError, TypeError):
-                attrs["时间状态"] = "未知"
+        now = datetime.now(timezone.utc)
+        added_at = self._added_at()
+        expires_at = self._expires_at()
+
+        if added_at is not None:
+            attrs["添加时间"] = added_at.isoformat()
+        if expires_at is not None:
+            remaining = (expires_at - now).days
+            attrs["过期时间"] = expires_at.isoformat()
+            attrs["剩余天数"] = max(remaining, 0)
+            if added_at is not None:
+                attrs["已使用天数"] = (now - added_at).days
+                attrs["总有效期"] = (expires_at - added_at).days
+            if remaining <= 0:
+                attrs["时间状态"] = "已过期"
+            elif remaining <= 7:
+                attrs["时间状态"] = "即将过期"
+            else:
+                attrs["时间状态"] = "有效"
+        elif added_at is None:
+            attrs["时间状态"] = "未知"
         return attrs
+
+    def _added_at(self) -> datetime | None:
+        """解析 token 的获取时间。"""
+        raw = self._entry.data.get("token_added_at")
+        if not raw:
+            return None
+        try:
+            added_at = datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            return None
+        if added_at.tzinfo is None:
+            added_at = added_at.replace(tzinfo=timezone.utc)
+        return added_at
+
+    def _expires_at(self) -> datetime | None:
+        """
+        token 过期时间。
+
+        优先使用登录响应里 JWT 的 exp（token_expires_at），
+        旧配置没有该字段时退回按 104 天有效期推算。
+        """
+        raw = self._entry.data.get("token_expires_at")
+        if raw:
+            try:
+                expires_at = datetime.fromisoformat(raw)
+            except (ValueError, TypeError):
+                expires_at = None
+            else:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                return expires_at
+
+        added_at = self._added_at()
+        if added_at is not None:
+            return added_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+        return None
 
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to HA."""

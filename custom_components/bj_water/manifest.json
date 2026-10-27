@@ -1,7 +1,7 @@
 {
   "domain": "bj_water",
   "name": "北京水费信息",
-  "version": 1,
+  "version": 2,
   "codeowners": ["@WeiYang1982"],
   "dependencies": [],
   "documentation": "https://github.com/WeiYang1982/bj_water/blob/main/README.md",

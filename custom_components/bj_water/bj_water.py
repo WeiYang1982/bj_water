@@ -1,22 +1,165 @@
 import asyncio
+import base64
 import hashlib
 import json
 import random
+import re
 import string
 import time
-from datetime import datetime
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from .const import LOGGER
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 SERVICE_HOST = "https://www.bjwatergroupkf.com.cn"
 
 # ============ 加密配置 ============
-_DECRYPT_KEY = b"cooptecxxxxxxxxx"  # 16字节，用于解密登录响应
-_LOGIN_PREFIX = "cooptec"           # 登录响应解密后需去掉的前缀
+_DECRYPT_KEY = b"cooptecxxxxxxxxx"  # 16字节，用于解密登录响应中的 secretKey / md5Salt
+_LOGIN_PREFIX = "cooptec"           # 解密后明文末尾固定追加的盐，需要去掉
+
+# ============ 手机号验证码登录参数（逆向 com.watergroup.marketing v1.12 得到） ============
+# EncryptUtils.mobile(phone) = Base64(AES-128-ECB-PKCS5Padding(phone))
+# key = MD5("cooptec1a2b3c!@#$").hexdigest().upper()[:16] == "7E40A9A4826FF52E"
+_PHONE_SALT = "cooptec1a2b3c!@#$"
+_PHONE_KEY = hashlib.md5(_PHONE_SALT.encode("utf-8")).hexdigest().upper()[:16].encode("utf-8")
+
+APP_VERSION = "1.30"
+
+# 发验证码 / 登录这两个接口不签名、不带 token，只需要 App 的 UA 和设备信息
+_LOGIN_HEADERS = {
+    "Host": "www.bjwatergroupkf.com.cn",
+    "Content-Type": "application/json",
+    "Accept": "*/*",
+    "Accept-Language": "zh-Hans-CN;q=1",
+    "User-Agent": "bei jing zi lai shui/1.30 (iPad; iOS 27.0; Scale/2.00)",
+    "token": "",
+}
+_LOGIN_TIMEOUT = 15
 
 
 class InvalidData(Exception):
     pass
+
+
+class LoginError(Exception):
+    """手机号登录相关的业务错误（验证码错误、发送过于频繁等）。"""
+
+
+def normalize_phone(phone: str) -> str:
+    """去掉手机号里的空格/横线（App 输入框也会做同样处理）。"""
+    return re.sub(r"[\s\-]", "", phone or "")
+
+
+def is_valid_phone(phone: str) -> bool:
+    return bool(re.fullmatch(r"1\d{10}", normalize_phone(phone)))
+
+
+def encrypt_phone(phone: str) -> str:
+    """明文手机号 -> Base64(AES-128-ECB-PKCS5(phone))，与 App 的 EncryptUtils.mobile() 一致。"""
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad
+
+    cipher = AES.new(_PHONE_KEY, AES.MODE_ECB)
+    return base64.b64encode(cipher.encrypt(pad(normalize_phone(phone).encode("utf-8"), AES.block_size))).decode()
+
+
+def parse_token_expiration(token: str) -> datetime | None:
+    """从 JWT 的 exp 声明解析 token 过期时间，失败返回 None。"""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
+@dataclass
+class LoginResult:
+    """手机号登录成功后拿到的一组凭据。"""
+
+    token: str
+    secret_key_enc: str
+    md5_salt_enc: str
+    user_info: dict
+    expires_at: datetime | None = None
+
+
+async def async_send_login_code(session, phone: str) -> None:
+    """
+    请求发送短信验证码。
+
+    App 的真实请求: GET /api/member/bizUsers/getNewLoginPhoneCode?phone=<AES密文>&timestamp=<毫秒>
+    """
+    url = f"{SERVICE_HOST}/api/member/bizUsers/getNewLoginPhoneCode"
+    params = {
+        "nonce": uuid.uuid4().hex,
+        "phone": encrypt_phone(phone),
+        "timestamp": str(int(time.time() * 1000)),
+    }
+    async with session.get(url, params=params, headers=_LOGIN_HEADERS, timeout=_LOGIN_TIMEOUT) as resp:
+        text = await resp.text()
+        status = resp.status
+
+    if status != 200:
+        raise LoginError(f"发送验证码失败: HTTP {status}")
+    try:
+        body = json.loads(text)
+    except ValueError as err:
+        raise LoginError("发送验证码失败: 响应不是合法的 JSON") from err
+    if body.get("code") != 0:
+        raise LoginError(f"发送验证码失败: {body.get('msg') or body.get('code')}")
+    LOGGER.debug("短信验证码已发送: %s", normalize_phone(phone))
+
+
+async def async_login_by_phone_code(session, phone: str, code: str) -> LoginResult:
+    """
+    手机号 + 短信验证码登录，换取 token / secretKey / md5Salt。
+
+    App 的真实请求: POST /api/member/bizUsers/loginByPhoneCode（phone 为明文，其余为设备信息）
+    """
+    url = f"{SERVICE_HOST}/api/member/bizUsers/loginByPhoneCode"
+    payload = {
+        "phone": normalize_phone(phone),
+        "osType": "ios",
+        "appVersion": APP_VERSION,
+        "osTypeVersion": "17.0",
+        "model": "iPad8,6",
+        "phoneCode": str(code).strip(),
+        "brand": "apple",
+        "mobileToken": uuid.uuid4().hex,
+        "timestamp": str(int(time.time() * 1000)),
+        "nonce": uuid.uuid4().hex,
+    }
+    async with session.post(url, json=payload, headers=_LOGIN_HEADERS, timeout=_LOGIN_TIMEOUT) as resp:
+        text = await resp.text()
+        status = resp.status
+
+    if status != 200:
+        raise LoginError(f"登录失败: HTTP {status}")
+    try:
+        body = json.loads(text)
+    except ValueError as err:
+        raise LoginError("登录失败: 响应不是合法的 JSON") from err
+    if body.get("code") != 0:
+        raise LoginError(f"登录失败: {body.get('msg') or body.get('code')}")
+
+    data = body.get("data") or {}
+    token = data.get("token") or ""
+    secret_key_enc = data.get("secretKey") or ""
+    md5_salt_enc = data.get("md5Salt") or ""
+    if not (token and secret_key_enc and md5_salt_enc):
+        raise LoginError("登录失败: 响应中缺少 token / secretKey / md5Salt")
+
+    LOGGER.debug("手机号登录成功: %s", normalize_phone(phone))
+    return LoginResult(
+        token=token,
+        secret_key_enc=secret_key_enc,
+        md5_salt_enc=md5_salt_enc,
+        user_info=data.get("userInfo") or {},
+        expires_at=parse_token_expiration(token),
+    )
 
 
 class BJWater:
@@ -121,6 +264,10 @@ class BJWater:
         else:
             response = await self._session.post(url=url, json=all_params, headers=headers, timeout=10)
 
+        if response.status in (401, 403):
+            LOGGER.error(f"_request res state code: {response.status}")
+            raise ConfigEntryAuthFailed(f"接口返回 HTTP {response.status}，登录态已失效")
+
         if response.status != 200:
             LOGGER.error(f"_request res state code: {response.status}")
             raise InvalidData(f"_request response status_code = {response.status}")
@@ -129,10 +276,9 @@ class BJWater:
         LOGGER.info(f"_request response: {result}")
 
         # 认证相关错误：抛出 ConfigEntryAuthFailed，触发 HA 自动重新认证流程
-        if result.get("code") in (1001, 1206):
-            raise ConfigEntryAuthFailed(
-                f"认证失败: {result.get('msg', '未知错误')}，请检查 token 和用户号是否匹配"
-            )
+        message = str(result.get("msg") or "")
+        if result.get("code") in (1001, 1206) or (result.get("code") == 1003 and "token" in message.lower()):
+            raise ConfigEntryAuthFailed(f"认证失败: {message or '未知错误'}，请重新通过手机号登录")
 
         if result.get("code") != 0:
             LOGGER.error(f"API错误: code={result.get('code')}, msg={result.get('msg')}")
@@ -149,6 +295,75 @@ class BJWater:
         return result
 
     # ---- 业务方法 ----
+
+    async def get_user_info(self) -> dict:
+        """
+        获取用户信息（昵称、手机号、实名状态等）。
+
+        和 App 一样不带任何业务参数，因此只用于确认登录态有效（token 可用），
+        不依赖水表户号。认证失败会抛出 ConfigEntryAuthFailed，触发 HA 自动重新认证。
+        """
+        result = await self._request("GET", "member/userCenter/getUserInfo")
+        data = result.get("data")
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    async def get_bound_accounts(self) -> list[dict]:
+        """
+        获取当前账号下绑定的水表列表。
+
+        GET /api/member/userCenter/getBindAccountList，App 在“选择户号”页面调用。
+        每项形如 {code, address, isDefault, id, tag, sortNo, userId}，其中 code 就是户号。
+        """
+        result = await self._request("GET", "member/userCenter/getBindAccountList")
+        data = result.get("data")
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                data = []
+        if not isinstance(data, list):
+            return []
+
+        accounts: list[dict] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code") or "").strip()
+            if not code:
+                continue
+            accounts.append(
+                {
+                    "code": code,
+                    "address": str(item.get("address") or "").strip(),
+                    "is_default": str(item.get("isDefault") or "0") == "1",
+                }
+            )
+        return accounts
+
+    async def get_default_user_code(self) -> str:
+        """
+        获取当前登录账号默认绑定的水表户号。
+
+        App 启动后调用 GET /api/member/userCenter/getLoginOrderId，
+        把返回的明文 data 作为默认 userCode。账号没设置默认户号时 data 可能为
+        空字符串或 "null"，此时返回空字符串，由 get_bound_accounts 兜底。
+        """
+        result = await self._request("GET", "member/userCenter/getLoginOrderId")
+        data = result.get("data")
+        if isinstance(data, dict):
+            for key in ("userCode", "code", "orderId"):
+                if data.get(key):
+                    return str(data[key]).strip()
+            return ""
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("code"):
+                    return str(item["code"]).strip()
+            return ""
+        value = str(data or "").strip()
+        return "" if value.lower() in ("null", "none", "undefined") else value
 
     async def get_bill_cycle_range(self):
         """
@@ -295,6 +510,9 @@ class BJWater:
         return self.info
 
     async def fetch_data(self):
+        # 首先验证用户信息，确认认证有效
+        # 如果此步失败会抛出异常，后续逻辑不会执行，避免无意义的 API 调用
+        await self.get_user_info()
         await self.get_bill_cycle_range()
         await self.get_payment_bill()
         # 重置累计用水量，避免每次刷新时重复累加
@@ -308,10 +526,12 @@ class BJWater:
             first_cycle_date = next(iter(self.info["cycle"]))
             latest_fee = self.info["cycle"][first_cycle_date].get("fee", {})
             self.info["latest_bill_amount"] = latest_fee.get("amount")
-        # 累计水费：所有账期费用之和，用于统计年度/历史总费用
+        # 累计水费：仅统计今年（当前自然年）的账期费用之和
+        current_year = str(datetime.now().year)
         self.info["total_cost_accumulated"] = sum(
             cycle_data.get("fee", {}).get("amount", 0)
-            for cycle_data in self.info["cycle"].values()
+            for cycle_date, cycle_data in self.info["cycle"].items()
+            if cycle_date.startswith(current_year)
         )
         return self.info
 
