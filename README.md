@@ -93,24 +93,21 @@ UPDATE_INTERVAL = timedelta(days=1)
      - 额外属性: 总用水量、水表数
 
 
-*sensors列表:*
+*配置过程:*
+
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/config_1.png" width="600"/>
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/config_2.png" width="600"/>
+<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/config_3.png" width="600"/>
+
+*传感器*
 
 <img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/sensors.png" width="600"/>
 
 
-*历史账单周期费用*
-
-<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_fee.png" width="600"/>
-
-
-*历史账单周期用量*
-
-<img alt="sensors列表" height="600" src="https://github.com/WeiYang1982/bj_water/blob/main/images/history_usage.png" width="600"/>
 
 
 ## TODO
 1. 由于未使用到第二阶梯，顾暂不处理
-2. 数据更新频率固定，且未考虑历史数据是否需要更新(不会...)
 
 
 - - -
