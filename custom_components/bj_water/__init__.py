@@ -1,17 +1,80 @@
 """The 北京水费 integration."""
 from __future__ import annotations
 
+from functools import partial
+
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.device_registry import async_get as dr_async_get
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.components import persistent_notification
 
-from .bj_water import BJWater, InvalidData
+from .bj_water import BJWater
 from .const import DOMAIN, LOGGER, UPDATE_INTERVAL, TOKEN_VALIDITY_DAYS
 from datetime import datetime, timedelta, timezone
+
+
+def _async_set_auth_status(hass: HomeAssistant, entry: ConfigEntry, status: str) -> None:
+    """记录登录态状态（供 Token Validity 传感器显示），状态没变就不写。"""
+    if entry.data.get("auth_status") == status:
+        return
+    new_data = dict(entry.data)
+    new_data["auth_status"] = status
+    hass.config_entries.async_update_entry(entry, data=new_data)
+
+
+def _notification_id(entry: ConfigEntry) -> str:
+    return f"{DOMAIN}_reauth_{entry.entry_id}"
+
+
+def _async_notify_reauth(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """发一条持久通知，提醒用户去集成页重新认证。"""
+    persistent_notification.async_create(
+        hass,
+        f"北京水费（户号 {entry.data.get('userCode', '')}）登录态已失效。\n\n"
+        "请打开「设置 - 设备与服务 - 集成 - 北京水费」，点击「重新认证」，"
+        "重新输入手机号和收到的短信验证码即可恢复，无需删除重建。",
+        title="北京水费需要重新认证",
+        notification_id=_notification_id(entry),
+    )
+
+
+def _async_dismiss_reauth_notification(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    persistent_notification.async_dismiss(hass, _notification_id(entry))
+
+
+def _reauth_flow_in_progress(hass: HomeAssistant, entry_id: str) -> bool:
+    """已经有一个等待用户重新认证的流程时，不要重复发起。"""
+    for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN):
+        context = flow.get("context", {})
+        if context.get("source") == SOURCE_REAUTH and context.get("entry_id") == entry_id:
+            return True
+    return False
+
+
+async def _async_update_data(hass: HomeAssistant, entry: ConfigEntry, api: BJWater):
+    """
+    每天的定时刷新。
+
+    登录态失效（服务端返回 1001/1206/1003 无效token，或 HTTP 401/403）时：
+    把 auth_status 置为 failed，并主动拉起「重新认证」流程，让用户重新填手机号 + 验证码。
+    """
+    try:
+        data = await api.fetch_data()
+    except ConfigEntryAuthFailed:
+        LOGGER.warning("登录态已失效，等待用户重新认证（设置 - 设备与服务 - 集成 - 北京水费）")
+        _async_set_auth_status(hass, entry, "failed")
+        if not _reauth_flow_in_progress(hass, entry.entry_id):
+            _async_notify_reauth(hass, entry)
+            entry.async_start_reauth(hass)
+        raise
+
+    _async_set_auth_status(hass, entry, "ok")
+    _async_dismiss_reauth_notification(hass, entry)
+    return data
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -37,30 +100,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         logger=LOGGER,
         name=DOMAIN,
         update_interval=UPDATE_INTERVAL,
-        update_method=api.fetch_data,
+        update_method=partial(_async_update_data, hass, entry, api),
     )
 
-    # 尝试刷新数据。如果认证失败，DataUpdateCoordinator 会捕获 ConfigEntryAuthFailed
-    # 并自动调用 async_start_reauth，无需手动处理。
-    # 注意：即使认证失败，也要继续加载 sensor 平台，让 token 有效期 sensor 能显示状态
-    try:
-        await coordinator.async_refresh()
-        # 刷新成功，更新认证状态
-        if entry.data.get("auth_status") != "ok":
-            new_data = dict(entry.data)
-            new_data["auth_status"] = "ok"
-            hass.config_entries.async_update_entry(entry, data=new_data)
-    except ConfigEntryAuthFailed:
-        # 认证失败：更新认证状态并启动重新认证流程
-        LOGGER.warning("初始数据认证失败，启动重新认证流程")
-        new_data = dict(entry.data)
-        new_data["auth_status"] = "failed"
-        hass.config_entries.async_update_entry(entry, data=new_data)
-        # 启动重新认证，但不 raise，让 sensor 平台继续加载
-        entry.async_start_reauth(hass)
-    except InvalidData:
-        # 数据错误（如户号无效）：记录但继续
-        LOGGER.warning(f"初始数据刷新失败: {InvalidData}")
+    # 先刷新一次。认证失败时 _async_update_data 已经拉起重新认证流程，
+    # 这里不让 setup 失败，保证 Token Validity 等传感器仍能加载出来。
+    await coordinator.async_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
         "config": {

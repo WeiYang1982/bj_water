@@ -21,11 +21,9 @@ from homeassistant.helpers.update_coordinator import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN, LOGGER, UPDATE_INTERVAL
-from .bj_water import BJWater
+from .const import DOMAIN, LOGGER
 
 SENSORS: dict[str, dict[str, object]] = {
     # 物理水表当前读数
@@ -97,27 +95,18 @@ async def async_setup_entry(
     """Set up sensor platform."""
     sensors_list: list[SensorEntity] = []
     user_code = config_entry.data["userCode"]
-    token = config_entry.data.get("token", "")
-    secret_key_enc = config_entry.data.get("secretKeyEnc", "")
-    md5_salt_enc = config_entry.data.get("md5SaltEnc", "")
-    api = BJWater(async_create_clientsession(hass), user_code, token, secret_key_enc, md5_salt_enc)
 
-    coordinator = DataUpdateCoordinator(
-        hass,
-        logger=LOGGER,
-        name=DOMAIN,
-        update_interval=UPDATE_INTERVAL,
-        update_method=api.fetch_data,
-    )
-
-    try:
-        await coordinator.async_refresh()
-    except Exception as exc:
-        LOGGER.warning(f"初始数据刷新失败（可能是认证问题），继续注册 sensor: {exc}")
-    data = coordinator.data
+    # 复用 __init__.py 里已经刷新好的 coordinator。
+    # 之前这里会再 new 一个 coordinator 并 async_refresh() 一次，
+    # 导致集成启动时整套用水数据接口被拉两遍（日志里同一段出现两次）。
+    entry_data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id) or {}
+    coordinator: DataUpdateCoordinator | None = entry_data.get("coordinator")
+    data = coordinator.data if coordinator is not None else None
+    if coordinator is None:
+        LOGGER.error("未找到已初始化的数据协调器，跳过用水数据实体注册")
 
     # 1. 添加常规字典中的传感器
-    if data is not None:
+    if coordinator is not None and data is not None:
         for key, value in data.items():
             if key in SENSORS:
                 if isinstance(value, list):
@@ -162,9 +151,9 @@ async def async_setup_entry(
 
     async_add_entities(sensors_list)
 
-    # 4. 将历史账期数据准确导入累计型传感器的长期统计（LTS）
-    if data is not None and isinstance(data.get("cycle"), dict):
-        await _async_import_bill_history_to_recorder(hass, user_code, data["cycle"])
+    # 历史账期的长期统计（LTS）在实体加入 HA 后再导入：
+    # 那时 entity_id 才是最终值（HA 会按设备名 + 实体名生成，可能是拼音），
+    # 见 BJWaterSensor / BJWaterLatestUsageSensor 的 async_added_to_hass。
 
 
 class BJWaterBaseSensor(CoordinatorEntity):
@@ -195,13 +184,15 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, user_code)
-        LOGGER.info("bj_water sensor num: %s", sensor_num)
-        LOGGER.info("bj_water sensor key: %s", sensor_key)
+        LOGGER.debug("bj_water sensor num: %s", sensor_num)
+        LOGGER.debug("bj_water sensor key: %s", sensor_key)
+        # 注意：不要设置 self._attr_entity_id —— HA 的实体平台只读取 entity.entity_id，
+        # 没有 `_attr_entity_id` 这个约定，写了也不生效。实体 id 由注册表按
+        # 「设备名 + 实体名」生成（中文会被 slugify 成拼音），需要固定 id 请在
+        # 界面上改，或通过 entity_registry 预注册。
         if sensor_num == 0:
-            self._attr_entity_id = f"sensor.{DOMAIN}_{user_code}_{sensor_key}"
             self._attr_unique_id = f"{DOMAIN}.{user_code}_{sensor_key}"
         else:
-            self._attr_entity_id = f"sensor.{DOMAIN}_{user_code}_{sensor_key}_{sensor_num}"
             self._attr_unique_id = f"{DOMAIN}.{user_code}_{sensor_key}_{sensor_num}"
         self._sensor_key = sensor_key
         self._sensor_value = sensor_value
@@ -241,6 +232,21 @@ class BJWaterSensor(BJWaterBaseSensor, SensorEntity):
         if value is None:
             return self._sensor_value
         return value
+
+    async def async_added_to_hass(self) -> None:
+        """实体加入后导入当期水费的历史统计（此时 entity_id 才确定）。"""
+        await super().async_added_to_hass()
+        if self._sensor_key != "latest_bill_amount" or not self.entity_id:
+            return
+        cycle_data = self.coordinator.data.get("cycle", {}) if self.coordinator.data else {}
+        _async_import_measurement_history(
+            self.hass,
+            self.entity_id,
+            "当期历史水费",
+            "CNY",
+            None,
+            _cycle_series(cycle_data, "cost"),
+        )
 
 
 class BJWaterTotalUsageSensor(BJWaterBaseSensor, SensorEntity):
@@ -348,80 +354,82 @@ class BJWaterLatestUsageSensor(BJWaterBaseSensor, SensorEntity):
                 break
         return attrs
 
+    async def async_added_to_hass(self) -> None:
+        """实体加入后导入当期用水量的历史统计（此时 entity_id 才确定）。"""
+        await super().async_added_to_hass()
+        if not self.entity_id:
+            return
+        _async_import_measurement_history(
+            self.hass,
+            self.entity_id,
+            "当期历史用水量",
+            UnitOfVolume.CUBIC_METERS,
+            "volume",
+            _cycle_series(self._get_cycle_data(), "usage"),
+        )
 
-async def _async_import_bill_history_to_recorder(
-    hass: HomeAssistant, user_code: str, cycle_data: dict
-) -> None:
-    """将历史账期数据作为单期测量值，准确导入到【当期传感器】的长期统计（LTS）中。"""
-    sorted_cycles = sorted(cycle_data.items(), key=lambda x: x[0])
 
-    usage_records: list[dict] = []
-    cost_records: list[dict] = []
+def _cycle_series(cycle_data: dict, field: str) -> list[tuple[datetime, float]]:
+    """抽出当年账期的 usage / cost 序列（升序）。"""
+    series: list[tuple[datetime, float]] = []
     current_year = str(datetime.now().year)
-
-    for cycle_date, cycle in sorted_cycles:
+    for cycle_date, cycle in sorted(cycle_data.items(), key=lambda x: x[0]):
         if not cycle_date.startswith(current_year):
             continue
-
-        meter = cycle.get("meter", {})
-        fee = cycle.get("fee", {})
-        usage = meter.get("usage")
-        amount = fee.get("amount")
-
-        if usage is None and amount is None:
+        if field == "usage":
+            raw = cycle.get("meter", {}).get("usage")
+        else:
+            raw = cycle.get("fee", {}).get("amount")
+        if raw is None:
             continue
         try:
             dt = datetime.strptime(cycle_date, "%Y-%m").replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-        if usage is not None:
-            usage_records.append({"date": dt, "usage": float(usage)})
-        if amount is not None:
-            cost_records.append({"date": dt, "cost": float(amount)})
+        series.append((dt, float(raw)))
+    return series
 
-    # 🎯 核心修正：历史数据注入到【当期传感器】的 statistic_id 中
-    statistic_id_latest_usage = f"sensor.{DOMAIN}_{user_code}_latest_usage"
-    statistic_id_latest_cost = f"sensor.{DOMAIN}_{user_code}_latest_bill_amount"
 
-    # 1. 导入当期用水量历史（作为独立测量值，has_sum=False）
-    if usage_records:
-        metadata_usage = StatisticMetaData(
-            mean_type=StatisticMeanType.NONE,
-            has_sum=False,  # 测量值不需要 sum 累加
-            name="当期历史用水量",
-            source="recorder",
-            statistic_id=statistic_id_latest_usage,
-            unit_of_measurement=UnitOfVolume.CUBIC_METERS,
-            unit_class="volume",
-        )
-        stats_usage: list[StatisticData] = []
-        for item in usage_records:
-            stats_usage.append(
-                StatisticData(
-                    start=item["date"],
-                    state=item["usage"],  # 直接写入当月独立值 (18, 22, 23等)
-                )
-            )
-        async_import_statistics(hass, metadata_usage, stats_usage)
+def _async_import_measurement_history(
+    hass: HomeAssistant,
+    statistic_id: str,
+    name: str,
+    unit_of_measurement: str | None,
+    unit_class: str | None,
+    series: list[tuple[datetime, float]],
+) -> None:
+    """
+    把历史账期数据作为单期测量值写入某个实体的长期统计（LTS）。
 
-    # 2. 导入当期水费历史（作为独立测量值，has_sum=False）
-    if cost_records:
-        metadata_cost = StatisticMetaData(
-            mean_type=StatisticMeanType.NONE,
-            has_sum=False,  # 测量值不需要 sum 累加
-            name="当期历史水费",
-            source="recorder",
-            statistic_id=statistic_id_latest_cost,
-            unit_of_measurement="CNY",
-            unit_class=None,
-        )
-        stats_cost: list[StatisticData] = []
-        for item in cost_records:
-            stats_cost.append(
-                StatisticData(
-                    start=item["date"],
-                    state=item["cost"],  # 直接写入当月独立金额
-                )
-            )
-        async_import_statistics(hass, metadata_cost, stats_cost)
-
+    statistic_id 必须与实体真实的 entity_id 完全一致，否则历史曲线不会挂到该实体上，
+    所以这里由调用方传入 self.entity_id，而不是拼 `sensor.bj_water_xxx_yyy`。
+    """
+    if not series:
+        LOGGER.info("无当年账期数据，跳过历史统计导入: %s", statistic_id)
+        return
+    # 重要：这些实体的 state_class 是 MEASUREMENT，HA 的 sensor 记录器会把它们的
+    # 统计元数据钉成 mean_type=ARITHMETIC（见 homeassistant/components/sensor/recorder.py
+    # 的 DEFAULT_STATISTICS）。这种元数据下，前端读的是 mean 列而不是 state 列，
+    # 只写 state 的话数据虽然进了库，但历史/统计图里一个点都不会画出来。
+    metadata = StatisticMetaData(
+        mean_type=StatisticMeanType.ARITHMETIC,
+        has_mean=True,
+        has_sum=False,  # 测量值不需要 sum 累加
+        name=name,
+        source="recorder",
+        statistic_id=statistic_id,
+        unit_of_measurement=unit_of_measurement,
+        unit_class=unit_class,
+    )
+    stats = [
+        StatisticData(start=dt, mean=value, state=value) for dt, value in series
+    ]
+    LOGGER.info(
+        "导入历史统计 %s: %d 条 %s ~ %s (%s)",
+        statistic_id,
+        len(stats),
+        series[0][0].strftime("%Y-%m"),
+        series[-1][0].strftime("%Y-%m"),
+        unit_of_measurement or "无单位",
+    )
+    async_import_statistics(hass, metadata, stats)
