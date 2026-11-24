@@ -2,9 +2,14 @@
 
 import json
 import unittest
+from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiohttp import ClientError, ClientPayloadError, RequestInfo, TooManyRedirects
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from multidict import CIMultiDict, CIMultiDictProxy
+from yarl import URL
 
 from custom_components.bj_water import _async_update_data
 from custom_components.bj_water import bj_water as client
@@ -62,6 +67,44 @@ class AuthenticationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["params"]["userCode"], self.api.user_code)
         for value in (self.api.token, self.api.user_code, request["params"]["sign"], "example-address", "2000-01"):
             self.assertNotIn(value, "\n".join(logs.output))
+
+    async def test_coordinator_logs_safe_transport_errors(self):
+        url = URL("https://example.invalid/bill").with_query(
+            userCode=self.api.user_code, sign="example-signature"
+        )
+        info = RequestInfo(url, "GET", CIMultiDictProxy(CIMultiDict()))
+        for stage, failure, expected_type in (
+            ("request", TooManyRedirects(info, ()), ClientError),
+            ("read", ClientPayloadError(str(url)), ClientError),
+            ("read", TimeoutError(str(url)), TimeoutError),
+        ):
+            with self.subTest(stage=stage, failure=type(failure).__name__):
+                response = MagicMock(status=200)
+                self.session.get = AsyncMock(return_value=response)
+                if stage == "request":
+                    self.session.get.side_effect = failure
+                else:
+                    response.read = AsyncMock(side_effect=failure)
+
+                hass, entry = MagicMock(), MagicMock()
+                coordinator = DataUpdateCoordinator(
+                    hass, client.LOGGER, name="bj_water", config_entry=entry,
+                    update_method=partial(_async_update_data, hass, entry, self.api),
+                )
+                with (
+                    patch.object(self.api, "get_user_info", new_callable=AsyncMock),
+                    patch.object(self.api, "_decrypt_credentials", return_value=("example-key", "example-salt")),
+                    self.assertLogs(client.LOGGER, "DEBUG") as logs,
+                ):
+                    await coordinator.async_refresh()
+
+                self.assertFalse(coordinator.last_update_success)
+                self.assertIsInstance(coordinator.last_exception, expected_type)
+                entry.async_start_reauth.assert_not_called()
+                self.assertTrue(any(record.levelname == "ERROR" for record in logs.records))
+                self.assertTrue(any(record.exc_info for record in logs.records))
+                for value in (self.api.user_code, "example-signature", "userCode=", "sign="):
+                    self.assertNotIn(value, "\n".join(logs.output))
 
     async def test_rejected_session_keeps_the_server_message_out_of_errors(self):
         for status, code in ((401, 0), (403, 0), (200, 1001), (200, 1206), (200, 1003)):

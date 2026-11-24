@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import hashlib
 import json
@@ -9,8 +8,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from .const import LOGGER
+
+from aiohttp import ClientError
 from homeassistant.exceptions import ConfigEntryAuthFailed
+
+from .const import LOGGER
 
 SERVICE_HOST = "https://www.bjwatergroupkf.com.cn"
 
@@ -259,20 +261,28 @@ class BJWater:
         url = f"{SERVICE_HOST}/api/{endpoint}"
         LOGGER.debug("北京水费请求: %s %s", method, endpoint)
 
-        if method.upper() == "GET":
-            response = await self._session.get(url=url, params=all_params, headers=headers, timeout=10)
-        else:
-            response = await self._session.post(url=url, json=all_params, headers=headers, timeout=10)
+        try:
+            if method.upper() == "GET":
+                response = await self._session.get(url=url, params=all_params, headers=headers, timeout=10)
+            else:
+                response = await self._session.post(url=url, json=all_params, headers=headers, timeout=10)
 
-        if response.status in (401, 403):
-            LOGGER.error(f"_request res state code: {response.status}")
-            raise ConfigEntryAuthFailed(f"接口返回 HTTP {response.status}，登录态已失效")
+            if response.status in (401, 403):
+                LOGGER.error(f"_request res state code: {response.status}")
+                raise ConfigEntryAuthFailed(f"接口返回 HTTP {response.status}，登录态已失效")
 
-        if response.status != 200:
-            LOGGER.error(f"_request res state code: {response.status}")
-            raise InvalidData(f"_request response status_code = {response.status}")
+            if response.status != 200:
+                LOGGER.error(f"_request res state code: {response.status}")
+                raise InvalidData(f"_request response status_code = {response.status}")
 
-        result = json.loads(await response.read())
+            body = await response.read()
+        except TimeoutError:
+            raise TimeoutError(f"北京水费接口 {endpoint} 请求超时") from None
+        except ClientError as err:
+            # aiohttp 异常可能包含带户号和签名的 URL，协调器还会记录异常回溯。
+            raise ClientError(f"北京水费接口 {endpoint} 请求失败（{type(err).__name__}）") from None
+
+        result = json.loads(body)
         LOGGER.debug("北京水费响应: %s code=%s", endpoint, result.get("code"))
 
         # 认证相关错误：抛出 ConfigEntryAuthFailed，触发 HA 自动重新认证流程
