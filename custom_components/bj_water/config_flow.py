@@ -55,7 +55,7 @@ async def validate_input(
         LOGGER.error("验证登录态失败: %s", exc)
         raise InvalidAuth from exc
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-        LOGGER.error("验证登录态时网络异常: %s", exc)
+        LOGGER.error("验证登录态时网络异常: %s", type(exc).__name__)
         raise CannotConnect from exc
     except InvalidData as exc:
         # 用户信息接口返回业务错误时，以绑定户号列表接口的结果为准
@@ -69,7 +69,7 @@ async def validate_input(
             LOGGER.error("验证登录态失败: %s", exc)
             raise InvalidAuth from exc
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            LOGGER.error("验证户号时网络异常: %s", exc)
+            LOGGER.error("验证户号时网络异常: %s", type(exc).__name__)
             raise CannotConnect from exc
         except InvalidData as exc:
             LOGGER.warning("获取绑定户号列表失败，跳过户号校验: %s", exc)
@@ -81,8 +81,7 @@ async def validate_input(
 
     codes = {item["code"] for item in accounts or []}
     if check_binding and codes and user_code not in codes:
-        LOGGER.error("户号 %s 不在账号绑定列表 %s 中", user_code, sorted(codes))
-        raise InvalidUserCode(f"户号 {user_code} 不在账号绑定列表中")
+        raise InvalidUserCode("户号不在账号绑定列表中")
 
     return {"title": f"水表户号: {user_code}"}
 
@@ -216,7 +215,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             LOGGER.warning("发送短信验证码失败: %s", exc)
             return {"base": "code_send_failed"}
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            LOGGER.warning("发送短信验证码网络异常: %s", exc)
+            LOGGER.warning("发送短信验证码网络异常: %s", type(exc).__name__)
             return {"base": "cannot_connect"}
 
         self._phone = phone
@@ -250,7 +249,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 LOGGER.warning("手机号登录失败: %s", exc)
                 return None, {"base": "invalid_code"}, False
             except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-                LOGGER.warning("手机号登录网络异常: %s", exc)
+                LOGGER.warning("手机号登录网络异常: %s", type(exc).__name__)
                 return None, {"base": "cannot_connect"}, False
 
         login = self._login
@@ -264,17 +263,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             user_code = str(user_code or "").strip() or self._user_code_hint
             if user_code:
                 if accounts and user_code not in {item["code"] for item in accounts}:
-                    LOGGER.warning("户号 %s 不在账号绑定列表 %s 中", user_code, [i["code"] for i in accounts])
+                    LOGGER.warning("所选户号不在账号绑定列表中")
                     return None, {"base": "user_code_not_bound"}, False
             elif accounts:
                 # 拿到绑定户号就一律交给下一步 select_meter，由用户确认/选择
                 self._meter_options = accounts
-                LOGGER.info("登录成功，由用户从 %d 个户号中选择: %s", len(accounts), [i["code"] for i in accounts])
+                LOGGER.debug("登录成功，由用户从 %d 个户号中选择", len(accounts))
                 return None, {}, True
             else:
                 user_code = await self._async_discover_user_code(login)
                 if user_code:
-                    LOGGER.info("绑定列表为空，用账号默认户号让用户确认: %s", user_code)
+                    LOGGER.debug("绑定列表为空，请用户确认默认户号")
                     self._meter_options = [{"code": user_code, "address": "", "is_default": True}]
                     return None, {}, True
             if not user_code:
@@ -329,10 +328,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             self._accounts = await api.get_bound_accounts()
         except (InvalidData, ConfigEntryAuthFailed, aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            LOGGER.warning("获取账号绑定水表列表失败，改为手动填写户号: %s", exc)
+            LOGGER.warning("获取账号绑定水表列表失败，改为手动填写户号: %s", type(exc).__name__)
             self._accounts = []
         else:
-            LOGGER.info("账号绑定的水表 %d 个: %s", len(self._accounts), self._accounts)
+            LOGGER.debug("账号绑定的水表数量: %d", len(self._accounts))
         return self._accounts
 
     async def _async_discover_user_code(self, login: LoginResult) -> str:
@@ -347,7 +346,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             user_code = await api.get_default_user_code()
         except (InvalidData, ConfigEntryAuthFailed, aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            LOGGER.warning("读取账号默认户号失败（可手动填写户号）: %s", exc)
+            LOGGER.warning("读取账号默认户号失败（可手动填写户号）: %s", type(exc).__name__)
             return ""
         return user_code if user_code.isdigit() else ""
 

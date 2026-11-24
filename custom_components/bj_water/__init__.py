@@ -59,7 +59,7 @@ async def _async_update_data(hass: HomeAssistant, entry: ConfigEntry, api: BJWat
     """
     每天的定时刷新。
 
-    登录态失效（服务端返回 1001/1206/1003 无效token，或 HTTP 401/403）时：
+    旧配置缺少登录凭据，或服务端返回认证失败时：
     把 auth_status 置为 failed，并主动拉起「重新认证」流程，让用户重新填手机号 + 验证码。
     """
     try:

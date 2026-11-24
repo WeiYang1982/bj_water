@@ -405,7 +405,7 @@ def _async_import_measurement_history(
     所以这里由调用方传入 self.entity_id，而不是拼 `sensor.bj_water_xxx_yyy`。
     """
     if not series:
-        LOGGER.info("无当年账期数据，跳过历史统计导入: %s", statistic_id)
+        LOGGER.debug("无当年账期数据，跳过历史统计导入: %s", name)
         return
     # 重要：这些实体的 state_class 是 MEASUREMENT，HA 的 sensor 记录器会把它们的
     # 统计元数据钉成 mean_type=ARITHMETIC（见 homeassistant/components/sensor/recorder.py
@@ -424,12 +424,5 @@ def _async_import_measurement_history(
     stats = [
         StatisticData(start=dt, mean=value, state=value) for dt, value in series
     ]
-    LOGGER.info(
-        "导入历史统计 %s: %d 条 %s ~ %s (%s)",
-        statistic_id,
-        len(stats),
-        series[0][0].strftime("%Y-%m"),
-        series[-1][0].strftime("%Y-%m"),
-        unit_of_measurement or "无单位",
-    )
+    LOGGER.debug("导入历史统计 %s: %d 条", name, len(stats))
     async_import_statistics(hass, metadata, stats)
