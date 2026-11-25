@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import hashlib
 import json
@@ -9,8 +8,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from .const import LOGGER
+
+from aiohttp import ClientError
 from homeassistant.exceptions import ConfigEntryAuthFailed
+
+from .const import LOGGER
 
 SERVICE_HOST = "https://www.bjwatergroupkf.com.cn"
 
@@ -109,8 +111,8 @@ async def async_send_login_code(session, phone: str) -> None:
     except ValueError as err:
         raise LoginError("发送验证码失败: 响应不是合法的 JSON") from err
     if body.get("code") != 0:
-        raise LoginError(f"发送验证码失败: {body.get('msg') or body.get('code')}")
-    LOGGER.debug("短信验证码已发送: %s", normalize_phone(phone))
+        raise LoginError(f"发送验证码失败: 返回码 {body.get('code')}")
+    LOGGER.debug("短信验证码已发送")
 
 
 async def async_login_by_phone_code(session, phone: str, code: str) -> LoginResult:
@@ -143,7 +145,7 @@ async def async_login_by_phone_code(session, phone: str, code: str) -> LoginResu
     except ValueError as err:
         raise LoginError("登录失败: 响应不是合法的 JSON") from err
     if body.get("code") != 0:
-        raise LoginError(f"登录失败: {body.get('msg') or body.get('code')}")
+        raise LoginError(f"登录失败: 返回码 {body.get('code')}")
 
     data = body.get("data") or {}
     token = data.get("token") or ""
@@ -152,7 +154,7 @@ async def async_login_by_phone_code(session, phone: str, code: str) -> LoginResu
     if not (token and secret_key_enc and md5_salt_enc):
         raise LoginError("登录失败: 响应中缺少 token / secretKey / md5Salt")
 
-    LOGGER.debug("手机号登录成功: %s", normalize_phone(phone))
+    LOGGER.debug("手机号登录成功")
     return LoginResult(
         token=token,
         secret_key_enc=secret_key_enc,
@@ -196,8 +198,8 @@ class BJWater:
 
     def _decrypt_credentials(self) -> tuple[str, str]:
         """解密登录响应中的 secretKey 和 md5Salt"""
-        if self.secret_key_enc is None or self.md5_salt_enc is None:
-            raise InvalidData("未配置 SECRET_KEY_ENC 或 MD5_SALT_ENC")
+        if not (self.token and self.secret_key_enc and self.md5_salt_enc):
+            raise ConfigEntryAuthFailed("缺少登录凭据，请通过手机号和短信验证码重新认证")
         raw_secret = self._aes_ecb_decrypt(self.secret_key_enc, _DECRYPT_KEY)
         raw_salt = self._aes_ecb_decrypt(self.md5_salt_enc, _DECRYPT_KEY)
         secret_key = raw_secret.replace(_LOGIN_PREFIX, "", 1)
@@ -257,32 +259,39 @@ class BJWater:
         }
 
         url = f"{SERVICE_HOST}/api/{endpoint}"
-        LOGGER.info(f"_request {method} {url} params={all_params} headers={headers}")
+        LOGGER.debug("北京水费请求: %s %s", method, endpoint)
 
-        if method.upper() == "GET":
-            response = await self._session.get(url=url, params=all_params, headers=headers, timeout=10)
-        else:
-            response = await self._session.post(url=url, json=all_params, headers=headers, timeout=10)
+        try:
+            if method.upper() == "GET":
+                response = await self._session.get(url=url, params=all_params, headers=headers, timeout=10)
+            else:
+                response = await self._session.post(url=url, json=all_params, headers=headers, timeout=10)
 
-        if response.status in (401, 403):
-            LOGGER.error(f"_request res state code: {response.status}")
-            raise ConfigEntryAuthFailed(f"接口返回 HTTP {response.status}，登录态已失效")
+            if response.status in (401, 403):
+                LOGGER.error(f"_request res state code: {response.status}")
+                raise ConfigEntryAuthFailed(f"接口返回 HTTP {response.status}，登录态已失效")
 
-        if response.status != 200:
-            LOGGER.error(f"_request res state code: {response.status}")
-            raise InvalidData(f"_request response status_code = {response.status}")
+            if response.status != 200:
+                LOGGER.error(f"_request res state code: {response.status}")
+                raise InvalidData(f"_request response status_code = {response.status}")
 
-        result = json.loads(await response.read())
-        LOGGER.info(f"_request response: {result}")
+            body = await response.read()
+        except TimeoutError:
+            raise TimeoutError(f"北京水费接口 {endpoint} 请求超时") from None
+        except ClientError as err:
+            # aiohttp 异常可能包含带户号和签名的 URL，协调器还会记录异常回溯。
+            raise ClientError(f"北京水费接口 {endpoint} 请求失败（{type(err).__name__}）") from None
+
+        result = json.loads(body)
+        LOGGER.debug("北京水费响应: %s code=%s", endpoint, result.get("code"))
 
         # 认证相关错误：抛出 ConfigEntryAuthFailed，触发 HA 自动重新认证流程
         message = str(result.get("msg") or "")
         if result.get("code") in (1001, 1206) or (result.get("code") == 1003 and "token" in message.lower()):
-            raise ConfigEntryAuthFailed(f"认证失败: {message or '未知错误'}，请重新通过手机号登录")
+            raise ConfigEntryAuthFailed(f"认证失败（返回码 {result.get('code')}），请重新通过手机号登录")
 
         if result.get("code") != 0:
-            LOGGER.error(f"API错误: code={result.get('code')}, msg={result.get('msg')}")
-            raise InvalidData(f"API错误: {result.get('msg', '未知错误')}")
+            raise InvalidData(f"北京水费接口 {endpoint} 返回错误码 {result.get('code')}")
 
         # 如果成功且 data 是加密的字符串，解密
         if result.get("code") == 0 and result.get("data") and isinstance(result["data"], str):
@@ -370,8 +379,6 @@ class BJWater:
         获取账单周期
         :return: dict {cycle_date: bill_month_str}
         """
-        LOGGER.info("get_bill_cycle_range user code: " + str(self.user_code))
-        LOGGER.info(f"get_bill_cycle_range token: {self.token[:20] if self.token else 'EMPTY'}...")
         result = await self._request("GET", "member/bizMyWater/getMonthsAndYears", {"userCode": self.user_code})
 
         if "months" in result["data"].keys() and len(result["data"]["months"]) > 0:
@@ -398,9 +405,8 @@ class BJWater:
                 )
             self.info["user_code"] = self.user_code
         else:
-            raise InvalidData(f"未查到账单周期,请检查户号: {self.user_code}!")
+            raise InvalidData("未查到账单周期，请检查户号")
 
-        LOGGER.info("get_bill_cycle_range end " + str(self.info))
         return self.bill_cycle
 
     async def get_payment_bill(self):
@@ -435,7 +441,6 @@ class BJWater:
                 }
                 self.info["cycle"][cycle_date].update(amount_detail)
             index += 1
-        LOGGER.info("get_payment_bill end " + str(self.info))
 
     async def get_monthly_bill(self, bill_cycle, index):
         """
@@ -453,8 +458,6 @@ class BJWater:
         detail_data = result["data"]
         if detail_data.get("endValue", "") == "":
             raise InvalidData("未查询到账单详情,请检查账单周期是否错误!")
-
-        result_info = {"date": bill_cycle, "usage": detail_data["total"]}
 
         if self.info["cycle"][bill_cycle]["fee"]["pay"] == 0:
             amount_detail = {
@@ -505,8 +508,6 @@ class BJWater:
                 "total_cost": self.info["water_tax"] + self.info["first_step_price"] + self.info["wastwater_treatment_price"]
             }
         )
-        LOGGER.info("周期使用量: %s" % str(result_info))
-        LOGGER.info(self.info)
         return self.info
 
     async def fetch_data(self):
